@@ -1,0 +1,108 @@
+import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { LayoutDashboard, Users, Library, BookOpen, Video, GraduationCap, Moon, Sun, LogOut, Menu, X } from 'lucide-react';
+import { useApp } from '../../contexts/AppContext';
+import { useTheme } from '../../contexts/ThemeContext';
+
+export const DashboardLayout = ({ children }: { children?: React.ReactNode }) => {
+  const { auth, logout } = useApp();
+  const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  const NavItem = ({ to, icon: Icon, label }: any) => {
+    const isActive = location.pathname === to;
+    return (
+      <button 
+        onClick={() => {
+          navigate(to);
+          setIsSidebarOpen(false);
+        }} 
+        className={`flex items-center gap-3 w-full p-3.5 text-sm font-bold rounded-xl transition-all duration-200 ${isActive ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'}`}
+      >
+        <Icon size={20} /> {label}
+      </button>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col md:flex-row">
+      {/* Mobile Header */}
+      <div className="md:hidden bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex items-center justify-between sticky top-0 z-30">
+        <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
+          <div className="bg-violet-100 dark:bg-violet-900/30 p-1.5 rounded-lg">
+            <BookOpen size={20} />
+          </div>
+          <span className="font-extrabold tracking-tight text-gray-900 dark:text-white">AIC CAMPUS</span>
+        </div>
+        <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`
+        fixed md:sticky top-0 h-screen w-72 bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 z-50 flex flex-col shadow-xl shadow-gray-200/50 dark:shadow-none transition-transform duration-300 ease-in-out
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <div className="p-8 flex justify-between items-start">
+          <div className="flex items-center gap-3 text-violet-600 dark:text-violet-400">
+            <div className="bg-violet-100 dark:bg-violet-900/30 p-2 rounded-lg">
+              <BookOpen size={28} />
+            </div>
+            <div className="leading-none">
+               <span className="block text-lg font-extrabold tracking-tight text-gray-900 dark:text-white">AIC CAMPUS</span>
+               <span className="block text-[10px] font-bold text-violet-500 tracking-widest">EXAM PORTAL</span>
+            </div>
+          </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-gray-400 hover:text-gray-600">
+            <X size={24} />
+          </button>
+        </div>
+
+        <nav className="px-4 space-y-1.5 flex-1 overflow-y-auto">
+          <div className="px-4 mb-3 text-[11px] font-extrabold text-gray-400 uppercase tracking-widest">Management</div>
+          <NavItem to="/dashboard" icon={LayoutDashboard} label="Overview" />
+          <NavItem to="/dashboard/students" icon={Users} label="Students" />
+          <NavItem to="/dashboard/academic" icon={Library} label="Academics" />
+          <NavItem to="/dashboard/exams" icon={BookOpen} label="Exams" />
+          <div className="mt-8 px-4 mb-3 text-[11px] font-extrabold text-gray-400 uppercase tracking-widest">Execution</div>
+          <NavItem to="/dashboard/proctor" icon={Video} label="Live Proctoring" />
+          <NavItem to="/dashboard/grading" icon={GraduationCap} label="Grading Center" />
+        </nav>
+        <div className="p-6 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-black/20">
+          <div className="flex items-center gap-4 mb-4 px-2">
+            <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center text-violet-600 dark:text-violet-400 font-bold shadow-sm text-sm">
+              {auth.user?.avatar}
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{auth.user?.name}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{auth.user?.role}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={toggleTheme} className="flex-1 flex items-center justify-center p-2.5 text-gray-600 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800 rounded-lg border border-transparent hover:border-gray-200 dark:hover:border-gray-700 transition-all shadow-sm hover:shadow">
+              {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            </button>
+            <button onClick={logout} className="flex-1 flex items-center justify-center p-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg border border-transparent hover:border-red-100 dark:hover:border-red-900/30 transition-all">
+               <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+      </aside>
+      
+      <main className="flex-1 p-4 md:p-10 animate-in fade-in duration-500 overflow-x-hidden w-full">
+        {children}
+      </main>
+    </div>
+  );
+};

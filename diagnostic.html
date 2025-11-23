@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Diagnostic Tool</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .check-item {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #ddd;
+        }
+        .check-item.pass {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        .check-item.fail {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        .check-item.warn {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+        .check-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        .check-detail {
+            font-size: 14px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+        }
+        .icon {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .solution {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .solution-title {
+            font-weight: bold;
+            color: #0066cc;
+            margin-bottom: 8px;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Firebase Configuration Diagnostic</h1>
+        <p class="subtitle">Checking your Firebase setup for common issues...</p>
+        
+        <div id="results"></div>
+        
+        <button onclick="runDiagnostic()">🔄 Run Diagnostic</button>
+    </div>
+
+    <script type="module">
+        window.runDiagnostic = async function() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p style="text-align: center; color: #667eea;">Running diagnostic checks...</p>';
+            
+            const results = [];
+            
+            // Check 1: Environment Variables
+            try {
+                const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+                const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+                const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+                
+                if (apiKey && authDomain && projectId) {
+                    results.push({
+                        status: 'pass',
+                        title: '✓ Environment Variables',
+                        detail: `API Key: ${apiKey ? '●●●●●●●●' : 'MISSING'}\nAuth Domain: ${authDomain}\nProject ID: ${projectId}`
+                    });
+                } else {
+                    results.push({
+                        status: 'fail',
+                        title: '✗ Environment Variables',
+                        detail: 'Some environment variables are missing!',
+                        solution: 'Check your .env.local file and make sure all VITE_FIREBASE_* variables are set.'
+                    });
+                }
+            } catch (e) {
+                results.push({
+                    status: 'fail',
+                    title: '✗ Environment Variables',
+                    detail: 'Cannot read environment variables',
+                    solution: 'Make sure .env.local exists and dev server is running.'
+                });
+            }
+            
+            // Check 2: Ad Blockers
+            const hasAdBlocker = await checkAdBlocker();
+            if (hasAdBlocker) {
+                results.push({
+                    status: 'warn',
+                    title: '⚠ Ad Blocker Detected',
+                    detail: 'An ad blocker or privacy extension may be blocking Firebase',
+                    solution: 'Try disabling ad blockers or use an incognito window. Whitelist:\n- *.googleapis.com\n- *.google.com\n- localhost'
+                });
+            } else {
+                results.push({
+                    status: 'pass',
+                    title: '✓ No Ad Blocker Detected',
+                    detail: 'No obvious ad blocker interference'
+                });
+            }
+            
+            // Check 3: Network Connectivity
+            try {
+                const response = await fetch('https://www.google.com', { mode: 'no-cors' });
+                results.push({
+                    status: 'pass',
+                    title: '✓ Internet Connection',
+                    detail: 'Can reach external services'
+                });
+            } catch (e) {
+                results.push({
+                    status: 'fail',
+                    title: '✗ Internet Connection',
+                    detail: 'Cannot reach external services',
+                    solution: 'Check your internet connection. If behind a firewall, Firebase may be blocked.'
+                });
+            }
+            
+            // Check 4: Firebase Status
+            results.push({
+                status: 'warn',
+                title: 'ℹ Firebase Service Status',
+                detail: 'Check: https://status.firebase.google.com',
+                solution: 'Visit status.firebase.google.com to see if Firebase is experiencing issues.'
+            });
+            
+            // Check 5: Browser Info
+            results.push({
+                status: 'pass',
+                title: 'ℹ Browser Information',
+                detail: `Browser: ${navigator.userAgent.split(' ').pop()}\nCookies Enabled: ${navigator.cookieEnabled}\nOnline: ${navigator.onLine}`
+            });
+            
+            // Display results
+            displayResults(results);
+        };
+        
+        async function checkAdBlocker() {
+            // Try to detect ad blocker by attempting to load a known ad resource
+            try {
+                const testAd = document.createElement('div');
+                testAd.className = 'adsbox';
+                testAd.style.display = 'none';
+                document.body.appendChild(testAd);
+                const hasAdBlocker = testAd.offsetHeight === 0;
+                document.body.removeChild(testAd);
+                return hasAdBlocker;
+            } catch (e) {
+                return false;
+            }
+        }
+        
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = results.map(result => `
+                <div class="check-item ${result.status}">
+                    <div class="check-title">${result.title}</div>
+                    <div class="check-detail">${result.detail}</div>
+                    ${result.solution ? `
+                        <div class="solution">
+                            <div class="solution-title">💡 Solution:</div>
+                            ${result.solution.split('\n').join('<br>')}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+        
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(runDiagnostic, 500);
+        });
+    </script>
+</body>
+</html>

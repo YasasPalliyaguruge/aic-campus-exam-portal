@@ -1,0 +1,8 @@
+{
+  "name": "AIC Campus Exam Portal",
+  "description": "Secure Assessment Platform for AIC Campus - Experience The Difference",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
