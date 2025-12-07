@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -26,6 +27,9 @@ export const auth = getAuth(app);
 // Initialize Firestore with named database
 // IMPORTANT: Connect to your named database "exam-portal"
 export const db = getFirestore(app, 'exam-portal');
+
+// Initialize Storage
+export const storage = getStorage(app);
 
 // Log successful initialization
 console.log('✅ Firebase initialized successfully');

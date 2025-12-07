@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban } from 'lucide-react';
+import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
 import { Card } from '../ui/Card';
@@ -185,6 +185,14 @@ export const ProctorView = () => {
                   </div>
                   
                   <div className="space-y-2">
+                    {/* Show current extra time if any */}
+                    {(selectedSession.extraTimeMinutes || 0) > 0 && (
+                      <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-center text-sm text-blue-700 dark:text-blue-300 font-medium">
+                        <Timer size={14} className="inline mr-1" />
+                        +{selectedSession.extraTimeMinutes} min extra time granted
+                      </div>
+                    )}
+                    
                     <Button 
                        className="w-full" 
                        variant="secondary"
@@ -199,6 +207,23 @@ export const ProctorView = () => {
                     >
                       Send Warning Message
                     </Button>
+                    
+                    <Button 
+                       className="w-full bg-blue-600 hover:bg-blue-700 text-white" 
+                       onClick={() => {
+                         const minutes = prompt("Enter extra minutes to grant (e.g. 5, 10, 15):");
+                         if (minutes && !isNaN(Number(minutes)) && Number(minutes) > 0) {
+                           const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
+                           api.sessions.extendTime(sessionId, Number(minutes));
+                           alert(`✅ Granted ${minutes} extra minutes to this student!`);
+                         } else if (minutes) {
+                           alert("Please enter a valid number of minutes.");
+                         }
+                       }}
+                    >
+                      <Timer size={18} /> Extend Time
+                    </Button>
+                    
                     <Button 
                        className="w-full" 
                        variant="danger"

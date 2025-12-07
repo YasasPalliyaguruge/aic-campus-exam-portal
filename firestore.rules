@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated (including anonymous)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is admin (has Firebase Auth account, not anonymous)
+    function isAdmin() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Anyone authenticated (including anonymous students) can read users
+      allow read: if isAuthenticated();
+      // Only admins can create/update users
+      allow write: if isAdmin();
+    }
+    
+    // Programs collection
+    match /programs/{programId} {
+      // Anyone authenticated can read programs
+      allow read: if isAuthenticated();
+      // Only admins can write
+      allow write: if isAdmin();
+    }
+    
+    // Exams collection
+    match /exams/{examId} {
+      // Anyone authenticated can read exams (students need to see their exam)
+      allow read: if isAuthenticated();
+      // Only admins can create/update exams
+      allow write: if isAdmin();
+    }
+    
+    // Sessions collection - This is where student exam sessions are stored
+    match /sessions/{sessionId} {
+      // Anyone authenticated can read sessions
+      allow read: if isAuthenticated();
+      // Anyone authenticated can write to sessions (students update their own sessions)
+      allow write: if isAuthenticated();
+    }
+  }
+}

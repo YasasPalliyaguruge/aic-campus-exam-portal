@@ -55,7 +55,8 @@ export const GradingCenter = () => {
 
   // Detail view for grading a specific submission
   if (selectedSessionId) {
-    const session = sessions.find(s => s.studentId === selectedSessionId);
+    // Find session by matching the combined studentId_examId format
+    const session = sessions.find(s => `${s.studentId}_${s.examId}` === selectedSessionId);
     const exam = exams.find(e => e.id === session?.examId);
     const student = users.find(u => u.id === session?.studentId);
     if (!session || !exam) return null;
@@ -196,7 +197,7 @@ export const GradingCenter = () => {
                     {s.score !== undefined ? <span className="font-bold text-emerald-600 dark:text-emerald-400">{s.score} pts</span> : <Badge color="amber">Pending Grading</Badge>}
                   </td>
                   <td className="p-3 md:p-5 text-right">
-                    <Button size="sm" variant="secondary" onClick={() => setSelectedSessionId(s.studentId)}>Grade <ChevronRight size={14}/></Button>
+                    <Button size="sm" variant="secondary" onClick={() => setSelectedSessionId(`${s.studentId}_${s.examId}`)}>Grade <ChevronRight size={14}/></Button>
                   </td>
                 </tr>
               );

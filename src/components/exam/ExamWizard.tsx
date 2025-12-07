@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ArrowLeft, PlusCircle, Edit2, Trash2, Save, CheckSquare, Circle, X, BookOpen, Clock, FileText, CheckCircle, Users, Calendar, ClipboardCheck, Key, GripVertical } from 'lucide-react';
+import { ArrowRight, ArrowLeft, PlusCircle, Edit2, Trash2, Save, CheckSquare, Circle, X, BookOpen, Clock, FileText, CheckCircle, Users, Calendar, ClipboardCheck, Key, GripVertical, Upload, File } from 'lucide-react';
 import { Exam, Question, QuestionType, UserRole } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { Button } from '../ui/Button';
@@ -8,6 +8,8 @@ import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { TextArea } from '../ui/TextArea';
 import { Badge } from '../ui/Badge';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../../firebase';
 
 export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, onCancel: () => void, onSuccess: () => void }) => {
   const { addExam, programs, users, isLoading } = useApp();
@@ -28,10 +30,38 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
 
   // Exam Data State
   const [newExam, setNewExam] = useState<Partial<Exam>>(exam || {
-    title: '', moduleId: '', durationMinutes: 60, questions: [], status: 'DRAFT', assignedStudents: [], studentCredentials: {}
+    title: '', moduleId: '', durationMinutes: 60, questions: [], status: 'DRAFT', assignedStudents: [], studentCredentials: {},
+    allowsFileUpload: false, allowedFileTypes: ['.pdf', '.docx', '.pptx'], maxFileCount: 1
   });
   
   const [createdExam, setCreatedExam] = useState<Exam | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // File Upload Handler
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.type !== 'application/pdf') {
+        alert('Please upload a PDF file.');
+        return;
+      }
+      
+      setIsUploading(true);
+      try {
+        const storageRef = ref(storage, `exam-resources/${Date.now()}_${file.name}`);
+        const snapshot = await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(snapshot.ref);
+        
+        setNewExam(prev => ({ ...prev, referenceDocumentUrl: url }));
+        console.log('✅ File uploaded:', url);
+      } catch (error) {
+        console.error('Upload failed:', error);
+        alert('Failed to upload file. Please try again.');
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
 
   // Reset question form when type changes
   useEffect(() => {
@@ -198,7 +228,13 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
     };
 
     // Remove ALL undefined values recursively (including in questions)
-    const cleanExamData = removeUndefined(examData) as Exam;
+    const cleanExamData = removeUndefined({
+        ...examData,
+        referenceDocumentUrl: newExam.referenceDocumentUrl, // Ensure this is included
+        allowsFileUpload: newExam.allowsFileUpload,
+        allowedFileTypes: newExam.allowsFileUpload ? newExam.allowedFileTypes : undefined,
+        maxFileCount: newExam.allowsFileUpload ? newExam.maxFileCount : undefined
+    }) as Exam;
 
     console.log('📤 Publishing exam:', cleanExamData);
 
@@ -257,8 +293,96 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                   </div>
                </div>
              </Card>
-             
+
              <Card>
+                <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <Upload size={20} className="text-violet-500"/> Submission Settings
+                </h3>
+                <div className="space-y-4">
+                   <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <input 
+                        type="checkbox" 
+                        id="allowUpload"
+                        checked={newExam.allowsFileUpload || false}
+                        onChange={(e) => setNewExam({...newExam, allowsFileUpload: e.target.checked})}
+                        className="w-5 h-5 text-violet-600 rounded focus:ring-violet-500"
+                      />
+                      <label htmlFor="allowUpload" className="font-medium text-gray-900 dark:text-white cursor-pointer select-none">
+                        Enable File Uploads (e.g. Presentations, Reports)
+                      </label>
+                   </div>
+
+                   {newExam.allowsFileUpload && (
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Allowed File Types</label>
+                          <Input 
+                            placeholder=".pdf, .docx, .pptx" 
+                            value={newExam.allowedFileTypes?.join(', ')}
+                            onChange={(e: any) => setNewExam({...newExam, allowedFileTypes: e.target.value.split(',').map((t:string)=>t.trim())})}
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Comma separated (e.g. .pdf, .docx)</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Max Files per Student</label>
+                          <Input 
+                            type="number" 
+                            min={1} 
+                            max={5}
+                            value={newExam.maxFileCount || 1}
+                            onChange={(e: any) => setNewExam({...newExam, maxFileCount: Number(e.target.value)})}
+                          />
+                        </div>
+                     </div>
+                   )}
+                </div>
+             </Card>
+
+             <Card>
+                <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <FileText size={20} className="text-violet-500"/> Case Study / Reference Document
+                </h3>
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-6 text-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative">
+                    <input 
+                      type="file" 
+                      accept="application/pdf"
+                      onChange={handleFileUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      disabled={isUploading}
+                    />
+                    <div className="flex flex-col items-center gap-2 text-gray-500 dark:text-gray-400">
+                      {isUploading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+                          <p>Uploading...</p>
+                        </>
+                      ) : newExam.referenceDocumentUrl ? (
+                        <>
+                          <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle size={24} />
+                          </div>
+                          <p className="font-medium text-emerald-600 dark:text-emerald-400">Document Attached</p>
+                          <p className="text-xs break-all">{newExam.referenceDocumentUrl}</p>
+                          <p className="text-xs mt-2 text-gray-400">Click to replace</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-12 h-12 bg-violet-100 dark:bg-violet-900/30 rounded-full flex items-center justify-center text-violet-600 dark:text-violet-400">
+                            <Upload size={24} />
+                          </div>
+                          <p className="font-medium">Click to upload PDF</p>
+                          <p className="text-xs">Max size: 10MB</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+             </Card>
+          </div>
+          
+          <div className="space-y-6">
+            <Card className="sticky top-6 border-violet-200 dark:border-violet-900/50 shadow-lg shadow-violet-500/10">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-lg text-gray-900 dark:text-white">Questions Added ({newExam.questions?.length})</h3>
                 <Button variant="secondary" size="sm" onClick={() => setStep(2)} disabled={!newExam.questions?.length}>

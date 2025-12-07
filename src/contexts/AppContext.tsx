@@ -20,7 +20,7 @@ export interface AppContextType {
   deleteModule: (programId: string, moduleId: string) => Promise<void>;
   startExamSession: (studentId: string, examId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
-  submitExamSession: (studentId: string, examId: string, answers: Record<string, any>) => Promise<void>;
+  submitExamSession: (studentId: string, examId: string, answers: Record<string, any>, uploadedFiles?: any[]) => Promise<void>;
   updateSessionGrade: (studentId: string, examId: string, questionId: string, score: number, feedback?: string) => Promise<void>;
   logViolation: (studentId: string, violation: Violation) => void;
   refreshData: () => Promise<void>;

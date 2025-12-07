@@ -1,256 +1,238 @@
-# ✅ Application Status & Testing Guide
+# 🧪 AIC Campus Exam Portal - Testing Guide
 
-## 🎉 Current Status
+## 📊 Current Status: ✅ FULLY FUNCTIONAL
 
-**EVERYTHING IS WORKING!** Firebase setup is complete and data is being saved properly.
-
----
-
-## 📊 How the Student Login System Works
-
-### Student Authentication Flow:
-
-1. **Students DON'T use Firebase Auth passwords** - they use **exam access codes**
-2. **Access codes are generated** when you create an exam and assign students
-3. **Students login with**:
-   - Their **email** (from student registry)
-   - The **access code** for their exam (shown in exam management)
+All features are working. Use this guide to test the complete workflow.
 
 ---
 
-## 🧪 How to Test Student Login
+## 🔑 Authentication
 
-### Step 1: Create a Student
+### Admin Login
+- **Email**: Your admin email (e.g., `admin@aic.edu`)
+- **Password**: Your admin password
 
-1. Go to **Dashboard** → **Students**
-2. Click **"Enroll Student"**
-3. Fill in:
+### Student Login
+- **Email**: Student's registered email
+- **Access Code**: 6-character code from exam (e.g., `ABC123`)
+- Access codes are **case-insensitive** and **whitespace-tolerant**
+
+---
+
+## 📋 Complete Test Workflow
+
+### 1. Admin Setup
+
+#### Create a Program
+1. Login as admin
+2. Go to **Academic** → **Add Program**
+3. Enter program name (e.g., "Computer Science")
+4. Add at least one module
+
+#### Enroll a Student
+1. Go to **Students** → **Enroll Student**
+2. Fill in:
    - Student ID: `ST001`
    - Name: `Test Student`
    - Email: `student@test.com`
-   - Program: Select any program
-4. Click **"Register Student"**
+   - Program: Select the program you created
+3. Click **Register Student**
 
-### Step 2: Create an Exam
-
-1. Go to **Dashboard** → **Exams**
-2. Click **"Create New Exam"**
-3. Follow the wizard:
-   - **Step 1**: Add exam details and questions
-   - **Step 2**: Review
-   - **Step 3**: 
-     - Select the student you created
-     - Set start/end dates
-     - Click **"Publish & Generate Keys"**
-4. **IMPORTANT**: Copy the access code shown for your student
-
-### Step 3: Login as Student
-
-1. **Logout** from admin account
-2. On login page, switch to **"Student Exam"** tab
-3. Enter:
-   - **Email**: `student@test.com` (the email you used)
-   - **Access Code**: The code you copied (e.g., `ABC123`)
-4. Click **"Verify & Enter Lobby"**
-5. **Success!** You should enter the exam
+#### Create an Exam
+1. Go to **Exams** → **Create New Exam**
+2. Step 1: Add exam details
+   - Title: "Test Exam"
+   - Duration: 30 minutes
+   - Add questions (at least one)
+3. Step 2: Review questions
+4. Step 3: Publish
+   - Select the student you created
+   - Set start time (now or in past for immediate access)
+   - Set end time (future)
+   - Click **Publish & Generate Keys**
+5. **Copy the access code** shown for the student
 
 ---
 
-## 🔍 Database Debugger
+### 2. Student Exam Flow
 
-I've added a debug page to inspect your Firestore data:
+#### Login
+1. Logout from admin
+2. On login page, click **"Student Exam"** tab
+3. Enter:
+   - Email: `student@test.com`
+   - Access Code: The code you copied (e.g., `B4NK7P`)
+4. Click **"Verify & Enter Lobby"**
+
+#### Take Exam
+1. Exam launches in fullscreen mode
+2. Allow webcam access when prompted
+3. Answer questions
+4. Submit when done (or wait for auto-submit)
+
+#### Review & Logout
+1. See completion screen with green checkmark
+2. Click **"Return to Home"**
+3. Review your submission
+4. Click **"Secure Logout"**
+
+---
+
+### 3. Proctoring Test
+
+#### While Student is Taking Exam
+1. Open another browser/incognito as admin
+2. Go to **Live Proctoring**
+3. You should see:
+   - Student's webcam feed
+   - Violation count
+   - Status indicator
+
+#### Test Admin Actions
+- **Send Warning**: Click student → "Send Warning Message"
+- **Extend Time**: Click student → "Extend Time" → Enter minutes
+- **Terminate**: Click student → "Terminate Session"
+
+---
+
+### 4. Grading Test
 
 1. Login as admin
+2. Go to **Grading Center**
+3. Select an exam with submissions
+4. Click on a student
+5. Score each question
+6. Add feedback
+7. Click **Save**
+
+---
+
+## 🔧 Debugging
+
+### Database Debugger
+1. Login as admin
 2. Go to: `http://localhost:3000/dashboard/debug`
-3. You'll see all your data:
-   - **users** collection
-   - **exams** collection
-   - **programs** collection
-   - **sessions** collection
-
-This helps verify everything is saving correctly!
+3. View all data:
+   - Users collection
+   - Exams collection
+   - Sessions collection
+   - Programs collection
 
 ---
 
-## ✅ What's Been Fixed
+## ⏱️ Exam Scheduling Tests
 
-### 1. **Firebase Auth Error** ✅
-- Fixed the "visibility-check-was-unavailable" error
-- Added retry logic
-- Enhanced error messages
+### Test Early Login Block
+1. Create exam with **future** start time
+2. Try to login as student
+3. Should see: "Exam hasn't started yet"
 
-### 2. **Firestore Connection** ✅
-- Configured to connect to your named database "exam-portal"
-- Data is being saved correctly
-- Auto-creates user profiles
+### Test Late Login Block
+1. Create exam with **past** end time
+2. Try to login as student
+3. Should see: "Exam has ended"
 
-### 3. **Student Login System** ✅
-- Students use **access codes**, not passwords
-- Access codes generated per exam
-- Login validates against Firestore data
+### Test Late Student Timer
+1. Create exam: 4:00 PM - 5:00 PM (60 min duration)
+2. Wait until 4:30 PM
+3. Login as student
+4. Timer should show **30 minutes** (not 60)
 
-### 4. **Code Quality** ✅
-- Fixed lint errors
-- Improved error handling
-- Added database debugger
-
----
-
-## 📋 Complete Workflow Test
-
-### Admin Workflow:
-1. ✅ Login as admin (`admin@aic.edu` / `admin123`)
-2. ✅ Create programs and modules
-3. ✅ Enroll students
-4. ✅ Create exams
-5. ✅ Assign students to exams
-6. ✅ Generate access codes
-7. ✅ View access codes (Key icon)
-
-### Student Workflow:
-1. ✅ Get email and access code from admin
-2. ✅ Login with email + access code
-3. ✅ Take exam
-4. ✅ Submit answers
-5. ✅ View completion screen
-
-### Proctor Workflow:
-1. ✅ View active sessions
-2. ✅ Monitor webcam feeds
-3. ✅ Track violations
-4. ✅ Review submissions
-
-### Grading Workflow:
-1. ✅ View submitted exams
-2. ✅ Grade essays/short answers
-3. ✅ Update scores
+### Test Time Extension
+1. Student starts exam
+2. Admin opens Live Proctoring
+3. Admin clicks student → "Extend Time" → enters "10"
+4. Student sees: "🎁 You have been granted 10 extra minutes!"
+5. Timer increases by 10 minutes
 
 ---
 
-## 🎯 Why Student Login Wasn't Working
+## 🔄 Session Persistence Test
 
-**The Issue**:
-- You were trying to use a **password** for students
-- But students don't have passwords - they use **temporary access codes**
-
-**The Solution**:
-- Access codes are generated when you publish an exam
-- Each student gets a unique code for each exam
-- Students login with: `email` + `access code`
-
-**Why This Design**:
-- More secure (codes are exam-specific)
-- No password management needed
-- Prevents unauthorized exam access
-- Easy to distribute (one code per exam)
+1. Login as admin or student
+2. Press **F5** or **Ctrl+R** to refresh
+3. You should **stay logged in** (not redirected to login)
+4. Check console for: "✅ Firebase session is valid, restoring app state"
 
 ---
 
-## 🔧 Data Verification
+## ❌ Common Errors & Fixes
 
-### Check Firestore Console:
-
-1. Go to: https://console.firebase.google.com/project/aic-campus-exam-portal/firestore/databases/exam-portal/data
-
-2. You should see these collections with data:
-
-#### `users` Collection:
-```javascript
-{
-  id: "u_stu1737280900000",
-  name: "Test Student",
-  email: "student@test.com",
-  role: "STUDENT",
-  studentId: "ST001",
-  programId: "prog_001"
-}
-```
-
-#### `exams` Collection:
-```javascript
-{
-  id: "exam_1737280900000",
-  title: "Test Exam",
-  status: "PUBLISHED",
-  assignedStudents: ["u_stu1737280900000"],
-  studentCredentials: {
-    "u_stu1737280900000": "ABC123"  // ← This is the access code!
-  }
-}
-```
-
-#### `sessions` Collection:
-```javascript
-{
- studentId: "u_stu1737280900000",
-  examId: "exam_1737280900000",
-  status: "WAITING", // or "IN_PROGRESS", "SUBMITTED"
-  answers: {},
-  violations: []
-}
-```
-
----
-
-## 🆘 Troubleshooting
-
-### "Student not found" error:
+### "Student not found"
 - **Check**: Student email matches exactly
-- **Fix**: Go to Students page, verify the email
+- **Fix**: Verify email in Students page
 
-### "Invalid Access Code" error:
-- **Check**: Access code is correct (case-sensitive!)
-- **Fix**: Go to Exams → Click Key icon → Copy the exact code
+### "Invalid Access Code"
+- **Check**: Code is correct
+- **Fix**: Go to Exams → Click Key icon → Copy exact code
+- **Note**: Codes are case-insensitive
 
-### "No active session" error:
-- **Check**: Exam is published and student is assigned
-- **Fix**: Go to Exams → Edit exam → Assign student → Publish
+### "Exam hasn't started yet"
+- **Check**: Exam start time is in the past
+- **Fix**: Edit exam and set earlier start time
 
-### Student can't see exam after login:
-- **Check**: Exam dates are set correctly
-- **Check**: Session was created (go to `/dashboard/debug`)
-- **Fix**: Make sure start/end dates are valid
+### "Exam has ended"
+- **Check**: Exam end time is in the future
+- **Fix**: Edit exam and set later end time
+
+### Session not persisting
+- **Check**: Browser allows localStorage
+- **Fix**: Clear cache and try again
+
+### Webcam not showing
+- **Check**: Camera permission granted
+- **Check**: Console for webcam errors
+- **Fix**: Allow camera access when prompted
 
 ---
 
-## 🎯 Next Steps
+## ✅ Feature Checklist
 
-Now that everything is working, you can:
+### Admin Features
+- [x] Login/Logout with session persistence
+- [x] Create programs and modules
+- [x] Enroll students
+- [x] Create exams with multiple question types
+- [x] View/copy access codes
+- [x] Live proctoring dashboard
+- [x] Send warnings to students
+- [x] Extend individual student time
+- [x] Terminate sessions
+- [x] Grade submissions
 
-1. **Add more students** in bulk
-2. **Create multiple exams** with different questions
-3. **Test the proctoring features** (webcam, tab switching)
-4. **Test the grading interface**
-5. **Customize the exam types** (MCQ, Essay, etc.)
+### Student Features
+- [x] Login with email + access code
+- [x] Case-insensitive access code
+- [x] Fullscreen exam mode
+- [x] Webcam streaming to proctor
+- [x] Tab switch detection
+- [x] Timer with scheduled end awareness
+- [x] Real-time time extensions
+- [x] Answer saving
+- [x] Submission review
+
+### Scheduling Features
+- [x] Block early login (before start time)
+- [x] Block late login (after end time)
+- [x] Timer respects scheduled window
+- [x] Auto-submit when window closes
+- [x] Individual time extensions
+
+### Security Features
+- [x] Fullscreen enforcement
+- [x] Tab switch logging
+- [x] Session persistence (survives refresh)
+- [x] Anonymous auth for students
 
 ---
 
 ## 📝 Summary
 
-**Status**: ✅ **FULLY FUNCTIONAL**
+**Status**: ✅ All features working
 
-**Admin Features Working**:
-- ✅ Login/Logout
-- ✅ Program management
-- ✅ Student enrollment
-- ✅ Exam creation
-- ✅ Access code generation
-- ✅ Proctoring dashboard
-- ✅ Grading center
-
-**Student Features Working**:
-- ✅ Login with access code
-- ✅ Exam interface
-- ✅ Answer submission
-- ✅ Webcam proctoring
-- ✅ Tab switch detection
-
-**Firebase Working**:
-- ✅ Authentication
-- ✅ Firestore database
-- ✅ Real-time updates
-- ✅ Data persistence
-
----
-
-**Everything is working as designed! Test the complete workflow to verify.**
+**Key Points**:
+- Students use **email + access code** (not passwords)
+- Access codes are **generated when exam is published**
+- Timer respects **scheduled end time** (late students get less time)
+- Admin can **extend time** for individual students
+- Session **survives page refresh**

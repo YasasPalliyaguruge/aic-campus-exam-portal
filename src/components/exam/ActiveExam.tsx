@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid } from 'lucide-react';
+import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2 } from 'lucide-react';
 import { Exam, StudentSession, UserRole, QuestionType } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
-import { TextArea } from '../ui/TextArea';
 import { RichTextEditor } from '../ui/RichTextEditor';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../../firebase';
 
 export const ActiveExam = () => {
   const { auth, logViolation, submitExamSession, startExamSession, logout } = useApp();
@@ -23,6 +24,9 @@ export const ActiveExam = () => {
   const [timeLeft, setTimeLeft] = useState<number | null>(null); // Remaining seconds
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
+  const [isSplitView, setIsSplitView] = useState(false); // Split Screen State
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; url: string; type: string; size: number; uploadedAt: number; }[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   // --- 1. Initialization Logic ---
   useEffect(() => {
@@ -75,15 +79,33 @@ export const ActiveExam = () => {
            return;
         }
 
-        // Calculate Time Left relative to Start Time
+        // Calculate Time Left
         const now = Date.now();
+        
+        // 1. Individual time based on when student started + duration + extra time
         const elapsedSeconds = Math.floor((now - freshSession.startTime) / 1000);
-        const totalSeconds = exam.durationMinutes * 60;
-        const remaining = totalSeconds - elapsedSeconds;
+        const extraTimeSeconds = (freshSession.extraTimeMinutes || 0) * 60;
+        const individualTotalSeconds = (exam.durationMinutes * 60) + extraTimeSeconds;
+        const individualRemaining = individualTotalSeconds - elapsedSeconds;
+        
+        // 2. Time until scheduled end (if exam has a scheduled end)
+        let scheduledRemaining = Infinity;
+        if (exam.scheduledEnd) {
+          const scheduledEndTime = new Date(exam.scheduledEnd).getTime();
+          scheduledRemaining = Math.floor((scheduledEndTime - now) / 1000);
+        }
+        
+        // Use the MINIMUM - if student is late, they only get time until scheduled end
+        const remaining = Math.min(individualRemaining, scheduledRemaining);
+        
+        console.log(`⏱️ Timer calculation:
+          - Individual remaining: ${Math.floor(individualRemaining / 60)} min
+          - Until scheduled end: ${scheduledRemaining === Infinity ? 'N/A' : Math.floor(scheduledRemaining / 60) + ' min'}
+          - Final timer: ${Math.floor(remaining / 60)} min`);
 
         if (remaining <= 0) {
            // Expired on load
-           handleSubmit(freshSession.studentId, exam.id, {}, true); // Pass true to skip state updates if component unmounting
+           handleSubmit(freshSession.studentId, exam.id, {}, [], true); // Pass true to skip state updates if component unmounting
            return;
         }
 
@@ -92,6 +114,7 @@ export const ActiveExam = () => {
         setActiveExamData({ exam, session: freshSession });
         setAnswers(freshSession.answers || {});
         answersRef.current = freshSession.answers || {}; // Init ref
+        if (freshSession.uploadedFiles) setUploadedFiles(freshSession.uploadedFiles);
         setInitStatus('READY');
 
       } catch (e) {
@@ -114,7 +137,7 @@ export const ActiveExam = () => {
     if (timeLeft <= 0) {
       // Time is up!
       if (activeExamData) {
-        handleSubmit(activeExamData.session.studentId, activeExamData.exam.id, answers);
+        handleSubmit(activeExamData.session.studentId, activeExamData.exam.id, answers, uploadedFiles);
       }
       return;
     }
@@ -176,61 +199,137 @@ export const ActiveExam = () => {
   useEffect(() => {
     if (initStatus !== 'READY') return;
     
+    let streamInterval: NodeJS.Timeout | null = null;
+    
     const startCam = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        console.log('🎥 Requesting webcam access...');
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: 640, height: 480 } 
+        });
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(e => console.error('Video play failed:', e));
+          console.log('✅ Webcam stream started successfully');
+          
+          // Wait 2 seconds for video to fully initialize before starting frame capture
+          setTimeout(() => {
+            console.log('📸 Starting frame capture...');
+            
+            streamInterval = setInterval(async () => {
+              try {
+                if (!videoRef.current || !activeExamData) {
+                  console.warn('⚠️ Video ref or exam data missing');
+                  return;
+                }
+                
+                const video = videoRef.current;
+                
+                // Check if video is actually playing
+                if (video.readyState < 2) {
+                  console.warn('⚠️ Video not ready, readyState:', video.readyState);
+                  return;
+                }
+                
+                if (video.videoWidth === 0 || video.videoHeight === 0) {
+                  console.warn('⚠️ Video dimensions invalid:', video.videoWidth, video.videoHeight);
+                  return;
+                }
+                
+                // Create canvas and capture frame
+                const canvas = document.createElement('canvas');
+                canvas.width = 320;
+                canvas.height = 240;
+                const ctx = canvas.getContext('2d');
+                
+                if (!ctx) {
+                  console.error('❌ Could not get canvas context');
+                  return;
+                }
+                
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const frameData = canvas.toDataURL('image/jpeg', 0.7);
+                
+                // Verify we have actual image data
+                if (frameData.length < 1000) {
+                  console.warn('⚠️ Frame data too small, likely blank');
+                  return;
+                }
+                
+                console.log('📤 Uploading frame... (size:', Math.round(frameData.length / 1024), 'KB)');
+                
+                await api.sessions.updateFrame(
+                  activeExamData.session.studentId, 
+                  activeExamData.exam.id, 
+                  frameData
+                );
+                
+                console.log('✅ Frame uploaded successfully!');
+                
+              } catch (error) {
+                console.error('❌ Frame capture/upload failed:', error);
+              }
+            }, 5000); // Every 5 seconds
+            
+          }, 2000); // Wait 2 seconds before starting
+        }
       } catch (e) {
-        console.error("Camera denied");
+        console.error('❌ Camera access denied or failed:', e);
+        alert('Camera access is required for this exam. Please grant permission and refresh the page.');
       }
     };
-    startCam();
     
-    // Frame Streaming
-    const streamInterval = setInterval(async () => {
-      if (videoRef.current && activeExamData) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 320;
-        canvas.height = 240;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          const frameData = canvas.toDataURL('image/jpeg', 0.5);
-          try {
-             await api.sessions.updateFrame(activeExamData.session.studentId, activeExamData.exam.id, frameData);
-          } catch (e) {
-             // Silent fail
-          }
-        }
-      }
-    }, 5000);
+    startCam();
 
-    // Cleanup tracks
+    // Cleanup
     return () => {
-      clearInterval(streamInterval);
+      if (streamInterval) {
+        clearInterval(streamInterval);
+      }
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(t => t.stop());
+        console.log('🛑 Webcam stream stopped');
       }
     };
   }, [initStatus, activeExamData]);
 
-  // --- 5. Warnings Listener ---
+  // --- 5. Warnings Listener + Schedule/Time Extension Checker ---
   useEffect(() => {
     if (initStatus !== 'READY' || !activeExamData) return;
 
-    // Poll for warnings every 5 seconds
+    // Poll for warnings and check schedule every 5 seconds
     const warningInterval = setInterval(async () => {
       try {
         // Construct proper session ID
         const sessionId = `${activeExamData.session.studentId}_${activeExamData.exam.id}`;
         
-        // Fetch the latest session data
+        // Fetch the latest session and exam data
         const data = await api.data.fetchAll();
         const currentSession = data.sessions.find(s => 
           s.studentId === activeExamData.session.studentId && 
           s.examId === activeExamData.exam.id
         );
+        const currentExam = data.exams.find(e => e.id === activeExamData.exam.id);
+        
+        // ===== CHECK SCHEDULED END TIME =====
+        if (currentExam?.scheduledEnd) {
+          const endTime = new Date(currentExam.scheduledEnd).getTime();
+          const now = Date.now();
+          if (now > endTime) {
+            // Exam window has closed - auto-submit
+            console.log("⏰ Exam window has closed. Auto-submitting...");
+            try {
+              await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFiles);
+            } catch (err) {
+              console.error("Failed to auto-submit:", err);
+            }
+            alert("⏰ The exam window has ended. Your answers have been automatically submitted.");
+            navigate('/student/completed');
+            return;
+          }
+        }
         
         if (currentSession) {
            // Check for Termination / Status Change
@@ -241,7 +340,7 @@ export const ActiveExam = () => {
                   console.log("⚠️ Session terminated externally. Saving final answers...");
                   try {
                     // Use the REF to get the latest answers since state might be stale in this closure
-                    await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current);
+                    await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFiles);
                   } catch (err) {
                     console.error("Failed to save final answers on termination:", err);
                   }
@@ -252,15 +351,30 @@ export const ActiveExam = () => {
               return;
            }
 
+           // ===== CHECK FOR EXTRA TIME GRANTED =====
+           const currentExtra = currentSession.extraTimeMinutes || 0;
+           const previousExtra = activeExamData.session.extraTimeMinutes || 0;
+           if (currentExtra > previousExtra) {
+              const addedMinutes = currentExtra - previousExtra;
+              console.log(`🎁 Extra time granted: +${addedMinutes} minutes`);
+              alert(`🎁 You have been granted ${addedMinutes} extra minutes!`);
+              
+              // Update the timer with new extra time
+              setTimeLeft(prev => {
+                if (prev === null) return null;
+                return prev + (addedMinutes * 60);
+              });
+           }
+
            // Check for Warnings
            if (currentSession.warnings && currentSession.warnings.length > (activeExamData.session.warnings?.length || 0)) {
               // New warning found!
               const newWarnings = currentSession.warnings.slice(activeExamData.session.warnings?.length || 0);
               newWarnings.forEach(w => alert(`⚠️ PROCTOR WARNING: ${w}`));
-              
-              // Update local state to avoid re-alerting
-              setActiveExamData(prev => prev ? ({...prev, session: currentSession}) : null);
            }
+           
+           // Update local state to keep in sync
+           setActiveExamData(prev => prev ? ({...prev, session: currentSession}) : null);
         }
       } catch (e) {
         // silent fail
@@ -299,21 +413,88 @@ export const ActiveExam = () => {
     }
   };
 
-  const handleSubmit = async (stuId = activeExamData?.session.studentId, exId = activeExamData?.exam.id, finalAnswers = answers, skipState = false) => {
+  const handleSubmit = async (stuId = activeExamData?.session.studentId, exId = activeExamData?.exam.id, finalAnswers = answers, finalFiles = uploadedFiles, skipState = false) => {
      if (!stuId || !exId) return;
+     
+     // Only show confirmation for manual submissions (not auto-submit)
+     if (!skipState && activeExamData) {
+       const totalQuestions = activeExamData.exam.questions.length;
+       const answeredQuestions = activeExamData.exam.questions.filter(q => {
+         const ans = finalAnswers[q.id];
+         return ans !== undefined && ans !== '' && (Array.isArray(ans) ? ans.length > 0 : true);
+       }).length;
+       const unansweredQuestions = totalQuestions - answeredQuestions;
+       
+       let confirmMessage = `You have answered ${answeredQuestions} out of ${totalQuestions} questions.`;
+       if (unansweredQuestions > 0) {
+         confirmMessage += `\n\n⚠️ ${unansweredQuestions} question(s) are still unanswered!`;
+       }
+       confirmMessage += `\n\nAre you sure you want to submit?`;
+       confirmMessage += `\n\n(Note: You can come back and edit your answers if time is still remaining)`;
+       
+       if (!confirm(confirmMessage)) {
+         return; // User cancelled
+       }
+     }
      
      if (!skipState) setInitStatus('SUBMITTING'); 
      
      try {
-       await submitExamSession(stuId, exId, finalAnswers);
+       await submitExamSession(stuId, exId, finalAnswers, finalFiles);
        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
        navigate('/student/completed');
-     } catch (e) {
+     } catch(e) {
        if (!skipState) {
         alert("Submission failed. Please try again.");
         setInitStatus('READY');
        }
      }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeExamData || !e.target.files || !e.target.files[0]) return;
+    
+    const file = e.target.files[0];
+    const { exam, session } = activeExamData;
+
+    // Validation
+    if (exam.maxFileCount && uploadedFiles.length >= exam.maxFileCount) {
+      alert(`Maximum ${exam.maxFileCount} files allowed.`);
+      return;
+    }
+
+    const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
+    if (exam.allowedFileTypes && !exam.allowedFileTypes.includes(fileExt)) {
+      alert(`Invalid file type. Allowed: ${exam.allowedFileTypes.join(', ')}`);
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const storageRef = ref(storage, `exam-submissions/${exam.id}/${session.studentId}/${Date.now()}_${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      
+      const newFile = {
+        name: file.name,
+        url,
+        type: file.type,
+        size: file.size,
+        uploadedAt: Date.now()
+      };
+      
+      setUploadedFiles(prev => [...prev, newFile]);
+    } catch (error) {
+      console.error("Upload failed:", error);
+      alert("Failed to upload file.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const removeFile = async (index: number) => {
+    if (!confirm("Are you sure you want to remove this file?")) return;
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   // --- RENDER ---
@@ -368,31 +549,58 @@ export const ActiveExam = () => {
                </span>
             </div>
             
-            <div className="w-20 h-16 md:w-32 md:h-24 bg-black rounded-lg overflow-hidden border-2 border-gray-800 relative shadow-lg shrink-0">
-               <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover opacity-80" />
-               <div className="absolute top-1 right-1 md:top-2 md:right-2 w-1.5 h-1.5 md:w-2 md:h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-            </div>
+            {exam.referenceDocumentUrl && (
+              <Button 
+                size="sm" 
+                variant="ghost"
+                onClick={() => setIsSplitView(!isSplitView)}
+                className="gap-2 hidden md:flex"
+              >
+                {isSplitView ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                {isSplitView ? 'Close' : '📄 View'} Case Study
+              </Button>
+            )}
 
-            <button 
+            <Button 
+              size="sm" 
+              variant="ghost" 
               onClick={() => setIsNavOpen(true)}
-              className="md:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+              className="lg:hidden"
             >
-              <Grid size={24} />
-            </button>
+              <Menu size={20} />
+            </Button>
          </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 container mx-auto max-w-5xl p-4 md:p-6 flex flex-col lg:flex-row gap-6 md:gap-8 relative">
-         {/* Question Area */}
-         <div className="flex-1 space-y-6">
-            <Card className="min-h-[400px] flex flex-col">
-               <div className="flex justify-between items-start mb-6">
-                  <Badge variant="outline">Question {currentQuestionIndex + 1} of {exam.questions.length}</Badge>
-                  <span className="text-sm text-gray-500 font-medium">{currentQ.points} Points</span>
+      {/* Webcam (Hidden) */}
+      <video ref={videoRef} autoPlay muted className="hidden" />
+
+      <main className="flex flex-1 gap-6 overflow-hidden h-full">
+        {/* PDF Panel */}
+        {isSplitView && exam.referenceDocumentUrl && (
+          <div className="w-[45%] overflow-hidden">
+            <iframe 
+              src={exam.referenceDocumentUrl} 
+              className="w-full h-full border-0 rounded-lg"
+              title="Reference Document"
+            />
+          </div>
+        )}
+
+        {/* Question Area */}
+        <div className={`${isSplitView ? 'w-[55%]' : 'w-full'} overflow-hidden flex flex-col lg:flex-row gap-6 md:gap-8 container mx-auto max-w-5xl p-4 md:p-6`}>
+           <div className="flex-1 space-y-6 overflow-y-auto">
+            <Card>
+               <div className="flex items-center justify-between mb-6">
+                 <Badge className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-sm px-3 py-1">
+                   Question {currentQuestionIndex + 1} of {exam.questions.length}
+                 </Badge>
+                 <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
+                   <span className="font-mono">{currentQ.points} pts</span>
+                 </div>
                </div>
 
-               <h2 className="text-lg md:text-xl font-medium text-gray-900 dark:text-white mb-8 leading-relaxed">
+               <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-6">
                  {currentQ.text}
                </h2>
 
@@ -469,6 +677,69 @@ export const ActiveExam = () => {
                </div>
             </Card>
 
+            {/* File Submission Section */}
+            {exam.allowsFileUpload && (
+              <Card className="border-violet-200 dark:border-violet-900/50">
+                <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <Upload size={20} className="text-violet-500"/> File Submission
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Please upload your files here. Allowed types: <span className="font-mono bg-gray-100 dark:bg-gray-800 px-1 rounded">{exam.allowedFileTypes?.join(', ')}</span>. 
+                  Max files: {exam.maxFileCount}.
+                </p>
+
+                <div className="space-y-4">
+                   {/* Upload Area */}
+                   {(uploadedFiles.length < (exam.maxFileCount || 1)) && (
+                     <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-8 text-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative">
+                        <input 
+                          type="file" 
+                          onChange={handleFileUpload}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          disabled={isUploading}
+                        />
+                        <div className="flex flex-col items-center gap-2 text-gray-500 dark:text-gray-400">
+                          {isUploading ? (
+                            <>
+                              <Loader2 size={32} className="animate-spin text-violet-600"/>
+                              <p>Uploading...</p>
+                            </>
+                          ) : (
+                            <>
+                              <Upload size={32} className="text-violet-400"/>
+                              <p className="font-medium">Click to upload file</p>
+                            </>
+                          )}
+                        </div>
+                     </div>
+                   )}
+
+                   {/* File List */}
+                   <div className="space-y-2">
+                      {uploadedFiles.map((file, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                           <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-10 h-10 bg-violet-100 dark:bg-violet-900/30 rounded-lg flex items-center justify-center text-violet-600 dark:text-violet-400 shrink-0">
+                                <File size={20}/>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate text-gray-900 dark:text-white">{file.name}</p>
+                                <p className="text-xs text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                              </div>
+                           </div>
+                           <button 
+                             onClick={() => removeFile(idx)}
+                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                           >
+                             <Trash2 size={18}/>
+                           </button>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+              </Card>
+            )}
+
             <div className="flex justify-between items-center pb-20 md:pb-0">
                <Button 
                  variant="ghost" 
@@ -495,9 +766,9 @@ export const ActiveExam = () => {
                  </Button>
                )}
             </div>
-         </div>
+            </div>
 
-         {/* Sidebar Navigation - Responsive Drawer */}
+          {/* Sidebar Navigation - Responsive Drawer */}
          <>
            {/* Overlay */}
            {isNavOpen && (
@@ -557,6 +828,7 @@ export const ActiveExam = () => {
               </div>
            </div>
          </>
+        </div>
       </main>
     </div>
   );

@@ -18,7 +18,13 @@ import { ProctorView } from './components/dashboard/ProctorView';
 import { GradingCenter } from './components/dashboard/GradingCenter';
 import { ActiveExam } from './components/exam/ActiveExam';
 import { StudentReview } from './components/exam/StudentReview';
+import { StudentReview as AdminStudentReview } from './components/dashboard/StudentReview';
 import { DatabaseDebugger } from './components/DatabaseDebugger';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth as firebaseAuth } from './firebase';
+
+// Storage key for persisting auth state
+const AUTH_STORAGE_KEY = 'exam_portal_auth';
 
 const App = () => {
   const [auth, setAuth] = useState<AuthState>({ user: null, isAuthenticated: false });
@@ -44,13 +50,44 @@ const App = () => {
     }
   };
 
+  // --- Session Persistence: Restore auth on page load ---
   useEffect(() => {
-    const init = async () => {
-      // Skip initial data fetch - only fetch after login
-      // This prevents permission errors on login page
-      setIsInitialLoad(false);
+    const restoreSession = async () => {
+      try {
+        // Check if there's a saved auth state
+        const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+        
+        if (savedAuth) {
+          const parsedAuth = JSON.parse(savedAuth) as AuthState;
+          console.log('🔄 Found saved session, restoring...');
+          
+          // Wait for Firebase to initialize and check if session is still valid
+          const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+            if (firebaseUser) {
+              // Firebase session is still active
+              console.log('✅ Firebase session is valid, restoring app state');
+              setAuth(parsedAuth);
+              await refreshData();
+            } else {
+              // Firebase session expired, clear saved state
+              console.log('⚠️ Firebase session expired, clearing saved state');
+              localStorage.removeItem(AUTH_STORAGE_KEY);
+            }
+            setIsInitialLoad(false);
+            unsubscribe(); // Only run once
+          });
+        } else {
+          // No saved session
+          setIsInitialLoad(false);
+        }
+      } catch (error) {
+        console.error('Error restoring session:', error);
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        setIsInitialLoad(false);
+      }
     };
-    init();
+
+    restoreSession();
   }, []);
 
   // Real-time session subscription
@@ -76,7 +113,13 @@ const App = () => {
     try {
       const result = await api.auth.login(role, emailOrId, code);
       if (result && result.user) {
-        setAuth({ user: result.user, isAuthenticated: true, activeExamId: result.activeExamId });
+        const newAuthState = { user: result.user, isAuthenticated: true, activeExamId: result.activeExamId };
+        setAuth(newAuthState);
+        
+        // Save to localStorage for persistence
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newAuthState));
+        console.log('💾 Session saved to localStorage');
+        
         await refreshData(); // Sync data on login
       } else {
         throw new Error("Login failed: Invalid response from server");
@@ -89,7 +132,14 @@ const App = () => {
     }
   };
 
-  const logout = () => setAuth({ user: null, isAuthenticated: false });
+  const logout = async () => {
+    // Clear localStorage first
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    console.log('🗑️ Session cleared from localStorage');
+    
+    await api.auth.logout();
+    setAuth({ user: null, isAuthenticated: false });
+  };
 
   const addExam = async (exam: Exam) => {
     setIsLoading(true);
@@ -159,9 +209,9 @@ const App = () => {
     setIsLoading(false);
   };
 
-  const submitExamSession = async (studentId: string, examId: string, answers: Record<string, any>) => {
+  const submitExamSession = async (studentId: string, examId: string, answers: Record<string, any>, uploadedFiles?: any[]) => {
     setIsLoading(true);
-    await api.sessions.submit(studentId, examId, answers);
+    await api.sessions.submit(studentId, examId, answers, uploadedFiles);
     await refreshData();
     setIsLoading(false);
   };
@@ -221,6 +271,7 @@ const App = () => {
                     <Route path="/academic" element={<AcademicManager />} />
                     <Route path="/exams" element={<ExamManager />} />
                     <Route path="/proctor" element={<ProctorView />} />
+                    <Route path="/review" element={<AdminStudentReview />} />
                     <Route path="/grading" element={<GradingCenter />} />
                     <Route path="/debug" element={<DatabaseDebugger />} />
                   </Routes>

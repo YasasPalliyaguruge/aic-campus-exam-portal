@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Library, BookOpen, Video, GraduationCap, Moon, Sun, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Users, Library, BookOpen, Video, GraduationCap, Moon, Sun, LogOut, Menu, X, FileCheck } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -77,6 +77,7 @@ export const DashboardLayout = ({ children }: { children?: React.ReactNode }) =>
           <NavItem to="/dashboard/exams" icon={BookOpen} label="Exams" />
           <div className="mt-8 px-4 mb-3 text-[11px] font-extrabold text-gray-400 uppercase tracking-widest">Execution</div>
           <NavItem to="/dashboard/proctor" icon={Video} label="Live Proctoring" />
+          <NavItem to="/dashboard/review" icon={FileCheck} label="Review Submissions" />
           <NavItem to="/dashboard/grading" icon={GraduationCap} label="Grading Center" />
         </nav>
         <div className="p-6 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-black/20">

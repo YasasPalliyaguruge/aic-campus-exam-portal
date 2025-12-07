@@ -2,7 +2,7 @@ import {
   collection, getDocs, addDoc, doc, updateDoc, deleteDoc, 
   query, where, getDoc, setDoc, onSnapshot 
 } from 'firebase/firestore';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, signInAnonymously } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { User, Exam, StudentSession, Violation, UserRole, Program, Module } from '../types';
 
@@ -58,6 +58,12 @@ export const api = {
           } 
           // Student Login (Access Code)
           else {
+              // Ensure we have an auth session (Anonymous) to read DB
+              if (!auth.currentUser) {
+                  console.log('👻 Signing in anonymously for Student access...');
+                  await signInAnonymously(auth);
+              }
+
               const q = query(collection(db, 'users'), where('email', '==', idOrEmail), where('role', '==', 'STUDENT'));
               const snapshot = await getDocs(q);
               if (snapshot.empty) throw new Error("Student not found.");
@@ -69,17 +75,40 @@ export const api = {
               const examSnapshot = await getDocs(examQ);
               
               let activeExamId = '';
-              let isValid = false;
+              let matchedExam: Exam | null = null;
 
-              examSnapshot.forEach(doc => {
-                  const exam = doc.data() as Exam;
-                  if (exam.studentCredentials?.[student.id] === code) {
-                      isValid = true;
+              examSnapshot.forEach(docSnap => {
+                  const exam = docSnap.data() as Exam;
+                  exam.id = docSnap.id; // Ensure ID is set
+                  const storedCode = exam.studentCredentials?.[student.id]?.toUpperCase().trim();
+                  const inputCode = code?.toUpperCase().trim();
+                  if (storedCode && inputCode && storedCode === inputCode) {
+                      matchedExam = exam;
                       activeExamId = exam.id;
                   }
               });
 
-              if (!isValid) throw new Error("Invalid Access Code");
+              if (!matchedExam) throw new Error("Invalid Access Code");
+              
+              // ===== SCHEDULE VALIDATION =====
+              const now = new Date();
+              
+              if (matchedExam.scheduledStart) {
+                  const startTime = new Date(matchedExam.scheduledStart);
+                  if (now < startTime) {
+                      const formattedStart = startTime.toLocaleString();
+                      throw new Error(`❌ Exam hasn't started yet.\n\nThe exam will be available on:\n📅 ${formattedStart}\n\nPlease try again at the scheduled time.`);
+                  }
+              }
+              
+              if (matchedExam.scheduledEnd) {
+                  const endTime = new Date(matchedExam.scheduledEnd);
+                  if (now > endTime) {
+                      const formattedEnd = endTime.toLocaleString();
+                      throw new Error(`❌ Exam has ended.\n\nThis exam closed on:\n📅 ${formattedEnd}\n\nPlease contact your instructor if you need assistance.`);
+                  }
+              }
+              // ===== END SCHEDULE VALIDATION =====
               
               // Initialize session if it doesn't exist
               await api.sessions.init(student.id, activeExamId);
@@ -242,14 +271,15 @@ export const api = {
             startTime: Date.now()
         });
     },
-    submit: async (studentId: string, examId: string, answers: Record<string, any>) => {
+    submit: async (studentId: string, examId: string, answers: Record<string, any>, uploadedFiles?: any[]) => {
         const sessionId = `${studentId}_${examId}`;
         
         // Update session with answers only - no auto grading
         await updateDoc(doc(db, 'sessions', sessionId), {
             status: 'SUBMITTED',
             submitTime: Date.now(),
-            answers
+            answers,
+            uploadedFiles: uploadedFiles || []
         });
         
         console.log(`✅ Exam submitted. Manual grading required.`);
@@ -316,12 +346,13 @@ export const api = {
         }
     },
     updateFrame: async (studentId: string, examId: string, frameData: string) => {
-        const q = query(collection(db, 'sessions'), 
-            where('studentId', '==', studentId), 
-            where('examId', '==', examId));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-            await updateDoc(snapshot.docs[0].ref, { currentFrame: frameData });
+        const sessionId = `${studentId}_${examId}`;
+        const sessionRef = doc(db, 'sessions', sessionId);
+        try {
+            await updateDoc(sessionRef, { currentFrame: frameData });
+        } catch (error) {
+            console.error('Failed to update frame:', error);
+            throw error;
         }
     },
     terminate: async (sessionId: string) => {
@@ -330,8 +361,47 @@ export const api = {
             status: 'SUBMITTED',
             submitTime: Date.now(),
             score: 0, // Disqualified or ended without submission
-            feedback: 'Session terminated by proctor.'
+            feedback: 'Session terminated by proctor.',
+            isTerminated: true // Mark as terminated - cannot be reopened
         });
+    },
+    extendTime: async (sessionId: string, extraMinutes: number) => {
+        const sessionRef = doc(db, 'sessions', sessionId);
+        const sessionSnap = await getDoc(sessionRef);
+        if (sessionSnap.exists()) {
+            const session = sessionSnap.data() as StudentSession;
+            const currentExtra = session.extraTimeMinutes || 0;
+            await updateDoc(sessionRef, {
+                extraTimeMinutes: currentExtra + extraMinutes
+            });
+            console.log(`✅ Extended time by ${extraMinutes} minutes. Total extra: ${currentExtra + extraMinutes} minutes`);
+        }
+    },
+    reopenSession: async (studentId: string, examId: string) => {
+        // Allow student to continue editing if they accidentally submitted early
+        const sessionId = `${studentId}_${examId}`;
+        const sessionRef = doc(db, 'sessions', sessionId);
+        const sessionSnap = await getDoc(sessionRef);
+        
+        if (sessionSnap.exists()) {
+            const session = sessionSnap.data() as StudentSession;
+            
+            // Check if session was terminated by admin
+            if (session.isTerminated) {
+                throw new Error('Cannot reopen: Session was terminated by administrator');
+            }
+            
+            // Only allow reopening if status is SUBMITTED (not COMPLETED/graded)
+            if (session.status !== 'SUBMITTED') {
+                throw new Error('Cannot reopen: Session is not in SUBMITTED status');
+            }
+            
+            await updateDoc(sessionRef, {
+                status: 'IN_PROGRESS',
+                submitTime: null  // Clear submit time
+            });
+            console.log('🔓 Session reopened for editing');
+        }
     },
     subscribe: (callback: (sessions: StudentSession[]) => void) => {
         const q = query(collection(db, 'sessions'));

@@ -46,6 +46,11 @@ export interface Exam {
   // New fields for Assignment & Security
   assignedStudents: string[]; // List of User IDs allowed to take this exam
   studentCredentials: Record<string, string>; // Map of StudentID -> Unique Access Code
+  referenceDocumentUrl?: string; // Optional PDF URL for Case Study
+  // File Submission Config
+  allowsFileUpload?: boolean;
+  allowedFileTypes?: string[]; // e.g. ['.pdf', '.docx']
+  maxFileCount?: number;
 }
 
 export interface Program {
@@ -78,6 +83,9 @@ export interface StudentSession {
   currentFrame?: string; // Current webcam frame for proctoring
   warnings?: string[]; // Warnings sent by proctor
   isFlagged?: boolean; // Marked for review by proctor
+  uploadedFiles?: { name: string; url: string; type: string; size: number; uploadedAt: number; }[];
+  extraTimeMinutes?: number; // Extra time granted to this student (admin can extend)
+  isTerminated?: boolean; // True if session was terminated by admin - cannot be reopened
 }
 
 export interface Violation {

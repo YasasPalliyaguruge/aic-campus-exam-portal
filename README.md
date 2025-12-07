@@ -1,113 +1,211 @@
-this is out intende app: A comprehensive, web-based assessment solution designed to facilitate secure, remote examinations. The platform features a modern, high-fidelity frontend and a robust backend architecture. It is divided into two distinct portals: a Management Dashboard for Administrators and Lecturers, and a locked-down Secure Exam Environment for Students.
+# 🎓 AIC Campus Exam Portal
 
-2. User Roles & Permissions
+A comprehensive, web-based assessment solution designed to facilitate secure, remote examinations. Features a modern, high-fidelity frontend with real-time proctoring capabilities.
 
-Administrator (Superuser): Has global access to the system. Responsible for infrastructure management, including the creation of academic programs, modules, user accounts, and high-level exam oversight.
+---
 
-Lecturer (Collaborator): Once assigned to specific programs or modules, they can author exams, schedule sessions, monitor live exams, and grade student submissions.
+## 🚀 Quick Start
 
-Student (Examinee): Restricted access users. Can only log in to take scheduled exams within a secured interface.
+### Prerequisites
+- **Node.js** v16 or higher
+- **Firebase Account** with a configured project
 
-3. Functional Modules (Management Dashboard)
+### Installation
 
-This dashboard is accessible only to Admins and Lecturers.
+```bash
+# Clone the repository
+cd aic-campus-exam-portal
 
-A. Academic Hierarchy Management
+# Install dependencies
+npm install
 
-Program Administration: Capabilities to create, edit, and delete academic programs (e.g., "Computer Science B.Sc").
+# Configure environment
+cp .env.example .env.local
+# Edit .env.local with your Firebase config
 
-Module Management: Manage specific courses or modules within programs.
+# Start development server
+npm run dev
+```
 
-Collaborator Assignment: Assign Lecturers to specific programs, granting them scoped privileges to manage content within those areas.
+Visit `http://localhost:3000` to access the portal.
 
-Curriculum Overview: A hierarchical view of all active programs and their associated modules.
+---
 
-B. Student Registry & Enrollment
+## 👥 User Roles
 
-User Database: Centralized management to create, edit, and delete student profiles.
+| Role | Access | Description |
+|------|--------|-------------|
+| **Administrator** | Full access | Manages programs, modules, users, exams |
+| **Lecturer** | Dashboard access | Creates exams, monitors sessions, grades submissions |
+| **Student** | Exam only | Takes assigned exams in secure environment |
 
-Cohort Assignment: Enroll students into specific academic programs.
+---
 
-Exam Eligibility: Assign enrolled students to specific exam sessions.
+## ✨ Features
 
-Status Tracking: Visual indicators of student enrollment status and active/inactive states.
+### 📊 Admin Dashboard
 
-C. Exam Authoring Suite
+- **Academic Management**: Create/edit programs and modules
+- **Student Registry**: Enroll students, assign to programs
+- **Exam Authoring**: Create exams with multiple question types
+  - Multiple Choice (Single/Multi-select)
+  - True/False
+  - Short Answer
+  - Essay
+- **Scheduling**: Set exam windows with start/end times
+- **Access Code Distribution**: Auto-generated secure codes per student
 
-Metadata Configuration: Define exam titles, strict duration timers, and pass/fail thresholds.
+### 🎥 Live Proctoring
 
-Diverse Question Bank: Support for multiple formats:
+- **Real-time Webcam Feeds**: Grid view of all active students
+- **Violation Detection**: Tab switching, fullscreen exit
+- **Admin Actions**:
+  - Send warnings to students
+  - Extend individual time
+  - Terminate sessions
 
-Multiple Choice (Single Select)
+### ⏱️ Exam Scheduling
 
-Multiple Choice (Multi-Select)
+- **Time Window Enforcement**: Students can only login during scheduled times
+- **Late Student Handling**: Timer shows remaining window, not full duration
+- **Auto-Submit**: Automatic submission when exam window closes
+- **Time Extensions**: Admin can grant extra time to individual students
 
-True/False
+### 📝 Student Exam Interface
 
-Short Answer
+- **Fullscreen Mode**: Enforced secure environment
+- **Webcam Streaming**: Live feed to proctors
+- **Violation Logging**: Tab switches and fullscreen exits recorded
+- **Auto-Save**: Answers saved periodically
+- **Review Page**: Students can review their submission after completing
 
-Essay/Long Text
+### 📊 Grading Center
 
-Security & Randomization: Options to enable question shuffling (randomization) per student and configure sensitivity thresholds for tab-switching violations.
+- **Submission Review**: View all student answers
+- **Manual Grading**: Score essays and short answers
+- **Feedback**: Add per-question notes
+- **Export**: Generate PDF reports
 
-Lifecycle Management: Save exams as "Drafts" for collaboration or "Publish" them for scheduling.
+---
 
-D. Scheduling & Credential Distribution
+## 🔐 Authentication
 
-Session Management: Schedule published exams for specific modules with defined activation windows (Start Date/Time to End Date/Time).
+### Admin/Lecturer Login
+- Email + Password (Firebase Authentication)
 
-Secure Access Logic: Automatically generate unique, one-time passwords (OTP) or access tokens for every enrolled student.
+### Student Login
+- Email + Access Code (Anonymous Authentication)
+- Access codes are generated when exam is published
+- Case-insensitive, whitespace-tolerant
 
-Automated Dispatch: System-triggered emails sending access credentials and instructions to students.
+---
 
-Roster View: Monitor the list of scheduled exams and current enrollment counts.
+## 📁 Project Structure
 
-E. Live Proctoring Command Center
+```
+src/
+├── components/
+│   ├── auth/           # Login portal
+│   ├── dashboard/      # Admin views (Overview, Proctor, Grading)
+│   ├── exam/           # Exam components (ActiveExam, StudentReview)
+│   ├── academic/       # Academic management
+│   ├── layout/         # Dashboard layout
+│   └── ui/             # Reusable UI components
+├── contexts/           # React contexts (App, Theme)
+├── services/           # API and Firebase services
+└── types.ts            # TypeScript type definitions
+```
 
-Real-Time Surveillance: Grid view displaying live, low-latency video streams from every active student's webcam (ephemeral streaming; no video storage required).
+---
 
-Violation Telemetry: Automated alerting system for integrity breaches, including:
+## 🔧 Configuration
 
-Browser tab switching.
+### Environment Variables (.env.local)
 
-Exiting fullscreen mode.
+```env
+VITE_FIREBASE_API_KEY=your-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=1:123456789:web:abc123
+```
 
-Status Monitoring: Real-time tracking of exam progress, remaining time, and connection status for each candidate.
+### Firebase Setup Required
 
-Incident Logging: Per-student counters for detected violations to assist in academic integrity reviews.
+1. **Enable Authentication Methods**:
+   - Email/Password (for admins)
+   - Anonymous (for students)
 
-F. Evaluation & Analytics
+2. **Deploy Firestore Rules**:
+   - Copy `firestore.rules` to Firebase Console
 
-Submission Review: Interface for Lecturers/Admins to review individual student answers.
+3. **Add Authorized Domains**:
+   - Add your hosting domain if not localhost
 
-Manual Grading: Input fields for grading essay/short-answer questions and overriding auto-graded marks if necessary.
+See `FIREBASE_AUTH_SETUP.md` for detailed instructions.
 
-Audit Trails: Detailed logs of session metadata (Login time, Submission time, Duration) and a record of all security violations.
+---
 
-Reporting: Export functionality to generate result summaries for entire cohorts.
+## 📱 Key Workflows
 
-4. Functional Modules (Student Exam Interface)
+### Admin: Create & Publish Exam
 
-This interface is isolated from the main dashboard to prevent unauthorized navigation.
+1. Go to **Exams** → Click **"Create New Exam"**
+2. Add exam details and questions
+3. Select students to assign
+4. Set scheduled start/end times
+5. Click **"Publish & Generate Keys"**
+6. Share access codes with students
 
-A. Authentication & Onboarding
+### Student: Take Exam
 
-Credential Login: Entry permitted only via the unique secure password emailed to the student.
+1. Navigate to the portal
+2. Click **"Student Exam"** tab
+3. Enter email and access code
+4. Complete exam in fullscreen mode
+5. Submit or wait for auto-submit
+6. Review submission and logout
 
-Lobby: Display of exam instructions, rules, and a countdown to the start time.
+### Admin: Monitor & Grade
 
-B. Secure Examination Environment
+1. Go to **Live Proctoring** to watch active exams
+2. Send warnings or extend time as needed
+3. Go to **Grading Center** after exam ends
+4. Review and score submissions
 
-Locked-Down UI: The interface restricts students strictly to the exam questions. No access to dashboard features (UserProfile, Home, etc.) is permitted.
+---
 
-Fullscreen Enforcement: The application forces fullscreen mode upon entry. Escaping fullscreen triggers an immediate warning and logs a violation.
+## 🛡️ Security Features
 
-Question Navigation: Options for sequential (one-way) or navigable (back-and-forth) question flow based on exam settings.
+- ✅ Fullscreen enforcement
+- ✅ Tab switch detection
+- ✅ Webcam proctoring
+- ✅ Session persistence (survives page refresh)
+- ✅ Anonymous auth for students (no Firebase account needed)
+- ✅ Time-window based access control
+- ✅ One-time access codes per exam
 
-Media Streaming: Background process that captures and streams the webcam feed to the Proctoring Dashboard without local recording.
+---
 
-Submission Logic: Auto-submit functionality when the timer expires, or manual submission upon completion.
+## 📄 Documentation
 
-5. Non-Functional Requirements
+- `SETUP_GUIDE.md` - Installation and setup instructions
+- `FIREBASE_AUTH_SETUP.md` - Firebase configuration for production
+- `TESTING_GUIDE.md` - Testing workflows and troubleshooting
 
-UI/UX Design: A modern, clean, and intuitive interface
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend**: React 18, TypeScript, Vite
+- **Styling**: Tailwind CSS
+- **Backend**: Firebase (Auth, Firestore, Storage)
+- **Icons**: Lucide React
+- **State**: React Context API
+
+---
+
+## 📝 License
+
+This project is proprietary software developed for AIC Campus.
