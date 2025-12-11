@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Moon, Sun, BookOpen, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { Moon, Sun, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { UserRole } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -54,8 +54,18 @@ export const LoginPortal = () => {
         <div className="md:w-5/12 bg-gradient-to-br from-violet-800 to-indigo-900 p-8 md:p-12 flex flex-col justify-between text-white relative overflow-hidden min-h-[200px] md:min-h-auto">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
           <div className="relative z-10 text-center md:text-left">
-            <div className="inline-block bg-white/10 p-4 rounded-2xl backdrop-blur-sm mb-6 md:mb-8 border border-white/10 shadow-xl">
-               <BookOpen size={32} className="text-white md:w-12 md:h-12" />
+            {/* Logos Container */}
+            <div className="flex items-center justify-center md:justify-start gap-4 mb-6 md:mb-8">
+              <img 
+                src="/images/AIC_Campus_Logo.png" 
+                alt="AIC Campus Logo" 
+                className="h-16 md:h-20 w-auto object-contain bg-white p-2 rounded-xl shadow-lg"
+              />
+              <img 
+                src="/images/IPAC_Logo.png" 
+                alt="IPAC Logo" 
+                className="h-16 md:h-20 w-auto object-contain bg-white/10 p-2 rounded-xl backdrop-blur-sm border border-white/10"
+              />
             </div>
             <h1 className="text-4xl md:text-5xl font-black tracking-tighter mb-1">AIC</h1>
             <h2 className="text-xl md:text-2xl font-bold tracking-[0.2em] text-blue-300 mb-4">CAMPUS</h2>
@@ -64,7 +74,7 @@ export const LoginPortal = () => {
             </p>
           </div>
           <div className="text-xs text-violet-200/60 relative z-10 mt-4 md:mt-10 hidden md:block">
-            AIC Campus Exam Portal • Secure Access
+            AIC Campus Exam Portal
           </div>
         </div>
 
@@ -101,7 +111,7 @@ export const LoginPortal = () => {
               <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
                 <div>
                   <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-2">Staff Login</h2>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base">Secure access for Academic Staff and Administrators.</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm md:text-base">Access for Academic Staff and Administrators.</p>
                 </div>
                 
                 <div className="space-y-4">
@@ -111,7 +121,6 @@ export const LoginPortal = () => {
                       type="email"
                       value={staffEmail}
                       onChange={(e: any) => setStaffEmail(e.target.value)}
-                      placeholder="staff@aic.edu"
                       required
                     />
                   </div>
@@ -154,7 +163,6 @@ export const LoginPortal = () => {
                       type="email" 
                       value={studentEmail}
                       onChange={(e: any) => setStudentEmail(e.target.value)}
-                      placeholder="name@student.aic.edu"
                       required
                     />
                   </div>
@@ -180,7 +188,7 @@ export const LoginPortal = () => {
           
           <div className="mt-8 text-center">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Secure Examination Environment v2.0
+              Examination Portal v2.0
             </p>
 
           </div>

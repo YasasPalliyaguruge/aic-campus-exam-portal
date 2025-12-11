@@ -43,5 +43,13 @@ service cloud.firestore {
       // Anyone authenticated can write to sessions (students update their own sessions)
       allow write: if isAuthenticated();
     }
+    
+    // Server Time Sync collection - Used for secure server time synchronization
+    // This allows the app to get the ACTUAL server time from Firebase
+    // Documents are temporary and cleaned up after use
+    match /_server_time_sync/{docId} {
+      // Anyone authenticated can read/write for time sync
+      allow read, write: if isAuthenticated();
+    }
   }
 }

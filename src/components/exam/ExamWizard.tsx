@@ -8,6 +8,7 @@ import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { TextArea } from '../ui/TextArea';
 import { Badge } from '../ui/Badge';
+import { RichTextEditor } from '../ui/RichTextEditor';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
 
@@ -36,6 +37,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
   
   const [createdExam, setCreatedExam] = useState<Exam | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
 
   // File Upload Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,6 +201,23 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
     return obj;
   };
 
+  const handleCopyList = () => {
+    if (!createdExam) return;
+
+    const lines = ["Student Name\tID\tEmail\tAccess Code"];
+    createdExam.assignedStudents.forEach(sid => {
+      const student = users.find(u => u.id === sid);
+      const code = createdExam.studentCredentials[sid];
+      lines.push(`${student?.name || 'Unknown'}\t${student?.studentId || 'N/A'}\t${student?.email || 'N/A'}\t${code}`);
+    });
+
+    const textToCopy = lines.join('\n');
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    });
+  };
+
   const handlePublish = async () => {
     if (!newExam.scheduledStart || !newExam.scheduledEnd || newExam.assignedStudents?.length === 0) {
       alert("Please schedule the exam and assign at least one student.");
@@ -211,6 +230,24 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
       credentials[sid] = generateAccessCode();
     });
 
+    // CRITICAL: Convert scheduled times to UTC ISO strings
+    // datetime-local returns strings like "2025-12-11T21:30" without timezone
+    // We must convert to UTC to ensure consistent interpretation across all timezones
+    // The admin's local time is converted to UTC timestamp for storage
+    const convertToUTC = (localDateTimeString: string): string => {
+      if (!localDateTimeString) return '';
+      // Parse as local time and convert to UTC ISO string
+      const localDate = new Date(localDateTimeString);
+      return localDate.toISOString(); // Returns UTC time with 'Z' suffix
+    };
+    
+    const scheduledStartUTC = convertToUTC(newExam.scheduledStart || '');
+    const scheduledEndUTC = convertToUTC(newExam.scheduledEnd || '');
+    
+    console.log('📅 Schedule conversion (Admin local → UTC):');
+    console.log(`   Start: ${newExam.scheduledStart} → ${scheduledStartUTC}`);
+    console.log(`   End: ${newExam.scheduledEnd} → ${scheduledEndUTC}`);
+
     // Build exam object with proper defaults
     const examData = {
       id: exam?.id || `exam_${Date.now()}`,
@@ -222,8 +259,8 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
       status: 'PUBLISHED' as const,
       assignedStudents: newExam.assignedStudents || [],
       studentCredentials: credentials,
-      scheduledStart: newExam.scheduledStart || '',
-      scheduledEnd: newExam.scheduledEnd || '',
+      scheduledStart: scheduledStartUTC, // Store as UTC ISO string
+      scheduledEnd: scheduledEndUTC,     // Store as UTC ISO string
       createdAt: newExam.createdAt || new Date().toISOString()
     };
 
@@ -404,7 +441,9 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                       <GripVertical size={16} className="text-gray-400" />
                       <span className="w-6 h-6 bg-violet-100 dark:bg-violet-900/30 rounded-full flex items-center justify-center text-xs font-bold text-violet-600 dark:text-violet-400">{idx + 1}</span>
                       <Badge>{q.type}</Badge>
-                      <span className="text-sm font-medium truncate max-w-md dark:text-gray-300">{q.text}</span>
+                      <span className="text-sm font-medium truncate max-w-md dark:text-gray-300">
+                        {q.text.replace(/<[^>]*>/g, '').substring(0, 80)}{q.text.length > 80 ? '...' : ''}
+                      </span>
                     </div>
                     <div className="flex items-center gap-3">
                        <span className="text-xs font-bold text-gray-500">{q.points} pts</span>
@@ -432,7 +471,14 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                     <option value={QuestionType.ESSAY}>Essay</option>
                  </Select>
                  
-                 <TextArea className="h-24 text-sm" placeholder="Question text..." value={manualQText} onChange={(e: any) => setManualQText(e.target.value)} />
+                 <div className="space-y-1">
+                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Question Text</label>
+                   <RichTextEditor 
+                     value={manualQText} 
+                     onChange={(val) => setManualQText(val)} 
+                     className="min-h-[150px]"
+                   />
+                 </div>
                  
                  {(manualQType === QuestionType.MCQ || manualQType === QuestionType.MULTI_SELECT) && (
                     <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -520,7 +566,10 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                            <Badge>{q.type}</Badge>
                            <span className="font-bold text-gray-400">{q.points} pts</span>
                         </div>
-                        <p className="text-lg font-medium text-gray-900 dark:text-white mb-4">{q.text}</p>
+                        <div 
+                          className="text-lg font-medium text-gray-900 dark:text-white mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
+                          dangerouslySetInnerHTML={{ __html: q.text }}
+                        />
                         {q.options && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {q.options.map((opt, i) => {
@@ -642,7 +691,10 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
           <Card className="text-left mb-8">
             <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100 dark:border-gray-800">
               <h3 className="font-bold text-lg">Student Credentials</h3>
-              <Button size="sm" variant="secondary"><ClipboardCheck size={16}/> Copy List</Button>
+              <Button size="sm" variant="secondary" onClick={handleCopyList}>
+                {isCopied ? <CheckCircle size={16} className="text-emerald-500" /> : <ClipboardCheck size={16}/>} 
+                {isCopied ? 'Copied!' : 'Copy List'}
+              </Button>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
                <table className="w-full text-sm">
@@ -650,6 +702,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                     <tr>
                       <th className="p-3 text-left">Student Name</th>
                       <th className="p-3 text-left">ID</th>
+                      <th className="p-3 text-left">Email</th>
                       <th className="p-3 text-right">Access Code</th>
                     </tr>
                  </thead>
@@ -660,6 +713,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                        <tr key={sid}>
                          <td className="p-3 font-medium text-gray-900 dark:text-white">{student?.name}</td>
                          <td className="p-3 text-gray-500">{student?.studentId}</td>
+                         <td className="p-3 text-gray-500">{student?.email}</td>
                          <td className="p-3 text-right font-mono text-lg font-bold tracking-widest text-violet-600 dark:text-violet-400 select-all">
                            {createdExam.studentCredentials[sid]}
                          </td>

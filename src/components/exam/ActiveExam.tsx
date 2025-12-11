@@ -1,18 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2 } from 'lucide-react';
+import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop } from 'lucide-react';
 import { Exam, StudentSession, UserRole, QuestionType } from '../../types';
 import { useApp } from '../../contexts/AppContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { api } from '../../services/api';
+import { getServerTime, resyncServerTime } from '../../services/serverTime';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
+import { Modal, useModal } from '../ui/Modal';
 
 export const ActiveExam = () => {
   const { auth, logViolation, submitExamSession, startExamSession, logout } = useApp();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   
@@ -27,7 +31,9 @@ export const ActiveExam = () => {
   const [isSplitView, setIsSplitView] = useState(false); // Split Screen State
   const [uploadedFiles, setUploadedFiles] = useState<{ name: string; url: string; type: string; size: number; uploadedAt: number; }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-
+  
+  // Modal state for beautiful dialogs
+  const { modalState, showModal, hideModal } = useModal();
   // --- 1. Initialization Logic ---
   useEffect(() => {
     const initializeExam = async () => {
@@ -79,11 +85,16 @@ export const ActiveExam = () => {
            return;
         }
 
-        // Calculate Time Left
-        const now = Date.now();
+        // Calculate Time Left (Using SERVER TIME - secure against clock manipulation)
+        // CRITICAL: Re-sync server time to get ACTUAL Firebase server time
+        // This is immune to client clock manipulation
+        console.log('🔄 Re-syncing server time for timer calculation...');
+        await resyncServerTime();
+        
+        const serverNow = getServerTime(); // ACTUAL server timestamp from Firebase
         
         // 1. Individual time based on when student started + duration + extra time
-        const elapsedSeconds = Math.floor((now - freshSession.startTime) / 1000);
+        const elapsedSeconds = Math.floor((serverNow - freshSession.startTime) / 1000);
         const extraTimeSeconds = (freshSession.extraTimeMinutes || 0) * 60;
         const individualTotalSeconds = (exam.durationMinutes * 60) + extraTimeSeconds;
         const individualRemaining = individualTotalSeconds - elapsedSeconds;
@@ -92,13 +103,16 @@ export const ActiveExam = () => {
         let scheduledRemaining = Infinity;
         if (exam.scheduledEnd) {
           const scheduledEndTime = new Date(exam.scheduledEnd).getTime();
-          scheduledRemaining = Math.floor((scheduledEndTime - now) / 1000);
+          scheduledRemaining = Math.floor((scheduledEndTime - serverNow) / 1000);
         }
         
         // Use the MINIMUM - if student is late, they only get time until scheduled end
         const remaining = Math.min(individualRemaining, scheduledRemaining);
         
-        console.log(`⏱️ Timer calculation:
+        console.log(`⏱️ Timer calculation (ACTUAL SERVER TIME):
+          - Server time: ${new Date(serverNow).toISOString()}
+          - Client time: ${new Date().toISOString()}
+          - Offset: ${serverNow - Date.now()}ms
           - Individual remaining: ${Math.floor(individualRemaining / 60)} min
           - Until scheduled end: ${scheduledRemaining === Infinity ? 'N/A' : Math.floor(scheduledRemaining / 60) + ' min'}
           - Final timer: ${Math.floor(remaining / 60)} min`);
@@ -163,16 +177,28 @@ export const ActiveExam = () => {
     const handleVisibility = () => {
       if (document.hidden && auth.user) {
         console.log('🚨 TAB SWITCH DETECTED - Logging violation');
-        logViolation(auth.user.id, { timestamp: Date.now(), type: 'TAB_SWITCH' });
-        alert("WARNING: Tab switching is monitored and has been recorded.");
+        logViolation(auth.user.id, { timestamp: getServerTime(), type: 'TAB_SWITCH' });
+        showModal({
+          title: '⚠️ Tab Switch Detected',
+          message: 'Switching tabs during an exam is not allowed. This violation has been recorded and will be reviewed by the proctor.',
+          type: 'warning',
+          showCancel: false,
+          confirmText: 'I Understand',
+        });
       }
     };
 
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement && auth.user) {
         console.log('🚨 FULLSCREEN EXIT DETECTED - Logging violation');
-        logViolation(auth.user.id, { timestamp: Date.now(), type: 'FULLSCREEN_EXIT' });
-        alert("WARNING: Exiting fullscreen is monitored and has been recorded.");
+        logViolation(auth.user.id, { timestamp: getServerTime(), type: 'FULLSCREEN_EXIT' });
+        showModal({
+          title: '⚠️ Fullscreen Exit Detected',
+          message: 'Exiting fullscreen mode during an exam is not allowed. This violation has been recorded. Please return to fullscreen mode.',
+          type: 'warning',
+          showCancel: false,
+          confirmText: 'I Understand',
+        });
       }
     };
 
@@ -276,7 +302,13 @@ export const ActiveExam = () => {
         }
       } catch (e) {
         console.error('❌ Camera access denied or failed:', e);
-        alert('Camera access is required for this exam. Please grant permission and refresh the page.');
+        showModal({
+          title: '📹 Camera Access Required',
+          message: 'Camera access is required for this proctored exam. Please grant camera permission in your browser settings and refresh the page.',
+          type: 'error',
+          showCancel: false,
+          confirmText: 'I Understand',
+        });
       }
     };
     
@@ -313,20 +345,30 @@ export const ActiveExam = () => {
         );
         const currentExam = data.exams.find(e => e.id === activeExamData.exam.id);
         
-        // ===== CHECK SCHEDULED END TIME =====
+        // ===== CHECK SCHEDULED END TIME (SERVER TIME - SECURE) =====
+        // SECURITY: Re-sync server time to prevent clock manipulation
         if (currentExam?.scheduledEnd) {
+          // Resync server time for accurate check
+          await resyncServerTime();
+          
           const endTime = new Date(currentExam.scheduledEnd).getTime();
-          const now = Date.now();
-          if (now > endTime) {
+          const serverNow = getServerTime(); // ACTUAL server timestamp
+          if (serverNow > endTime) {
             // Exam window has closed - auto-submit
-            console.log("⏰ Exam window has closed. Auto-submitting...");
+            console.log("⏰ Exam window has closed (server time). Auto-submitting...");
             try {
               await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFiles);
             } catch (err) {
               console.error("Failed to auto-submit:", err);
             }
-            alert("⏰ The exam window has ended. Your answers have been automatically submitted.");
-            navigate('/student/completed');
+            showModal({
+              title: '⏰ Time\'s Up!',
+              message: 'The exam window has ended. Your answers have been automatically submitted.',
+              type: 'info',
+              showCancel: false,
+              confirmText: 'OK',
+              onConfirm: () => navigate('/student/completed'),
+            });
             return;
           }
         }
@@ -346,8 +388,14 @@ export const ActiveExam = () => {
                   }
               }
 
-              alert("Session Ended: Your exam has been submitted or terminated by the proctor.");
-              navigate('/student/completed');
+              showModal({
+                title: 'Session Ended',
+                message: 'Your exam has been submitted or terminated by the proctor.',
+                type: 'info',
+                showCancel: false,
+                confirmText: 'OK',
+                onConfirm: () => navigate('/student/completed'),
+              });
               return;
            }
 
@@ -357,7 +405,13 @@ export const ActiveExam = () => {
            if (currentExtra > previousExtra) {
               const addedMinutes = currentExtra - previousExtra;
               console.log(`🎁 Extra time granted: +${addedMinutes} minutes`);
-              alert(`🎁 You have been granted ${addedMinutes} extra minutes!`);
+              showModal({
+                title: '🎁 Extra Time Granted!',
+                message: `Great news! You have been granted ${addedMinutes} extra minute${addedMinutes > 1 ? 's' : ''} for this exam.`,
+                type: 'success',
+                showCancel: false,
+                confirmText: 'Continue',
+              });
               
               // Update the timer with new extra time
               setTimeLeft(prev => {
@@ -370,7 +424,15 @@ export const ActiveExam = () => {
            if (currentSession.warnings && currentSession.warnings.length > (activeExamData.session.warnings?.length || 0)) {
               // New warning found!
               const newWarnings = currentSession.warnings.slice(activeExamData.session.warnings?.length || 0);
-              newWarnings.forEach(w => alert(`⚠️ PROCTOR WARNING: ${w}`));
+              newWarnings.forEach(w => {
+                showModal({
+                  title: '⚠️ Proctor Warning',
+                  message: w,
+                  type: 'warning',
+                  showCancel: false,
+                  confirmText: 'I Understand',
+                });
+              });
            }
            
            // Update local state to keep in sync
@@ -413,6 +475,25 @@ export const ActiveExam = () => {
     }
   };
 
+  // Actual submission logic (separated for modal callback)
+  const doSubmit = async (stuId: string, exId: string, finalAnswers: Record<string, any>, finalFiles: any[]) => {
+    setInitStatus('SUBMITTING');
+    try {
+      await submitExamSession(stuId, exId, finalAnswers, finalFiles);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      navigate('/student/completed');
+    } catch(e) {
+      showModal({
+        title: 'Submission Failed',
+        message: 'Failed to submit your exam. Please check your internet connection and try again.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+      setInitStatus('READY');
+    }
+  };
+
   const handleSubmit = async (stuId = activeExamData?.session.studentId, exId = activeExamData?.exam.id, finalAnswers = answers, finalFiles = uploadedFiles, skipState = false) => {
      if (!stuId || !exId) return;
      
@@ -425,18 +506,30 @@ export const ActiveExam = () => {
        }).length;
        const unansweredQuestions = totalQuestions - answeredQuestions;
        
-       let confirmMessage = `You have answered ${answeredQuestions} out of ${totalQuestions} questions.`;
-       if (unansweredQuestions > 0) {
-         confirmMessage += `\n\n⚠️ ${unansweredQuestions} question(s) are still unanswered!`;
-       }
-       confirmMessage += `\n\nAre you sure you want to submit?`;
-       confirmMessage += `\n\n(Note: You can come back and edit your answers if time is still remaining)`;
-       
-       if (!confirm(confirmMessage)) {
-         return; // User cancelled
-       }
+       // Show beautiful modal instead of native confirm
+       showModal({
+         title: 'Submit Exam',
+         message: (
+           <div className="space-y-3">
+             <p>You have answered <span className="font-bold text-violet-600">{answeredQuestions}</span> out of <span className="font-bold">{totalQuestions}</span> questions.</p>
+             {unansweredQuestions > 0 && (
+               <p className="text-amber-600 dark:text-amber-400 font-medium">
+                 ⚠️ {unansweredQuestions} question(s) are still unanswered!
+               </p>
+             )}
+             <p className="mt-4 font-medium">Are you sure you want to submit?</p>
+           </div>
+         ),
+         type: unansweredQuestions > 0 ? 'warning' : 'confirm',
+         confirmText: 'Submit Exam',
+         cancelText: 'Continue Editing',
+         showCancel: true,
+         onConfirm: () => doSubmit(stuId, exId, finalAnswers, finalFiles),
+       });
+       return;
      }
      
+     // Auto-submit (skipState = true) - no confirmation needed
      if (!skipState) setInitStatus('SUBMITTING'); 
      
      try {
@@ -445,7 +538,13 @@ export const ActiveExam = () => {
        navigate('/student/completed');
      } catch(e) {
        if (!skipState) {
-        alert("Submission failed. Please try again.");
+        showModal({
+          title: 'Submission Failed',
+          message: 'Failed to submit your exam. Please try again.',
+          type: 'error',
+          showCancel: false,
+          confirmText: 'OK',
+        });
         setInitStatus('READY');
        }
      }
@@ -459,13 +558,25 @@ export const ActiveExam = () => {
 
     // Validation
     if (exam.maxFileCount && uploadedFiles.length >= exam.maxFileCount) {
-      alert(`Maximum ${exam.maxFileCount} files allowed.`);
+      showModal({
+        title: 'File Limit Reached',
+        message: `Maximum ${exam.maxFileCount} files allowed. Please delete an existing file to upload a new one.`,
+        type: 'warning',
+        showCancel: false,
+        confirmText: 'OK',
+      });
       return;
     }
 
     const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
     if (exam.allowedFileTypes && !exam.allowedFileTypes.includes(fileExt)) {
-      alert(`Invalid file type. Allowed: ${exam.allowedFileTypes.join(', ')}`);
+      showModal({
+        title: 'Invalid File Type',
+        message: `This file type is not allowed. Accepted formats: ${exam.allowedFileTypes.join(', ')}`,
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
       return;
     }
 
@@ -486,7 +597,13 @@ export const ActiveExam = () => {
       setUploadedFiles(prev => [...prev, newFile]);
     } catch (error) {
       console.error("Upload failed:", error);
-      alert("Failed to upload file.");
+      showModal({
+        title: 'Upload Failed',
+        message: 'Failed to upload your file. Please check your internet connection and try again.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
     } finally {
       setIsUploading(false);
     }
@@ -498,6 +615,16 @@ export const ActiveExam = () => {
   };
 
   // --- RENDER ---
+
+  const ThemeToggle = () => (
+    <button
+      onClick={toggleTheme}
+      className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-500 dark:text-gray-400"
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+    >
+      {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+    </button>
+  );
 
   if (initStatus === 'LOADING' || initStatus === 'SUBMITTING') {
     return (
@@ -561,6 +688,9 @@ export const ActiveExam = () => {
               </Button>
             )}
 
+            <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 hidden md:block"></div>
+            <ThemeToggle />
+
             <Button 
               size="sm" 
               variant="ghost" 
@@ -588,7 +718,7 @@ export const ActiveExam = () => {
         )}
 
         {/* Question Area */}
-        <div className={`${isSplitView ? 'w-[55%]' : 'w-full'} overflow-hidden flex flex-col lg:flex-row gap-6 md:gap-8 container mx-auto max-w-5xl p-4 md:p-6`}>
+        <div className={`${isSplitView ? 'w-[55%]' : 'w-full'} overflow-hidden flex flex-col lg:flex-row gap-6 md:gap-8 w-full max-w-[98%] ml-auto mr-2 md:mr-6 p-4 md:p-6`}>
            <div className="flex-1 space-y-6 overflow-y-auto">
             <Card>
                <div className="flex items-center justify-between mb-6">
@@ -600,9 +730,17 @@ export const ActiveExam = () => {
                  </div>
                </div>
 
-               <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-6">
-                 {currentQ.text}
-               </h2>
+               {/* Render question text with HTML formatting support */}
+               <div 
+                 className="text-base md:text-lg font-medium text-gray-800 dark:text-gray-100 mb-6 leading-relaxed rich-text-content
+                   [&>ul]:list-disc [&>ul]:pl-6 [&>ul]:mb-3 
+                   [&>ol]:list-decimal [&>ol]:pl-6 [&>ol]:mb-3 
+                   [&>p]:mb-3 
+                   [&>table]:w-full [&>table]:border-collapse [&>table]:my-4 [&>table]:shadow-sm
+                   [&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-3 [&_td]:bg-gray-50 [&_td]:dark:bg-gray-800/50 
+                   [&_th]:border [&_th]:border-gray-400 [&_th]:dark:border-gray-500 [&_th]:p-3 [&_th]:bg-gray-100 [&_th]:dark:bg-gray-800 [&_th]:font-bold [&_th]:text-gray-900 [&_th]:dark:text-white"
+                 dangerouslySetInnerHTML={{ __html: currentQ.text }}
+               />
 
                <div className="flex-1 space-y-4">
                   {currentQ.type === QuestionType.MCQ && currentQ.options?.map((opt, idx) => (
@@ -668,7 +806,6 @@ export const ActiveExam = () => {
                   {(currentQ.type === QuestionType.SHORT_ANSWER || currentQ.type === QuestionType.ESSAY) && (
                     <RichTextEditor 
                       key={currentQ.id}
-                      placeholder="Type your answer here..."
                       value={currentA || ''}
                       onChange={(val) => handleAnswer(val)}
                       className="min-h-[300px]"
@@ -830,6 +967,19 @@ export const ActiveExam = () => {
          </>
         </div>
       </main>
+      
+      {/* Beautiful Modal Dialog */}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

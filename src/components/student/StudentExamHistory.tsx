@@ -174,9 +174,10 @@ export const StudentExamHistory = () => {
                     </div>
                   </div>
 
-                  <h3 className="font-semibold text-gray-900 dark:text-white text-lg mb-4">
-                    {question.text}
-                  </h3>
+                  <div 
+                    className="font-semibold text-gray-900 dark:text-white text-lg mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
+                    dangerouslySetInnerHTML={{ __html: question.text }}
+                  />
 
                   <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border-l-4 border-violet-500">
                     <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">

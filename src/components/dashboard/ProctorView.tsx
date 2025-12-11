@@ -2,21 +2,37 @@ import React, { useState } from 'react';
 import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
+import { getServerTime } from '../../services/serverTime';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { Modal, useModal } from '../ui/Modal';
 
 export const ProctorView = () => {
   const { users, exams, sessions } = useApp();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const { modalState, showModal, hideModal } = useModal();
 
   const activeSessions = sessions.filter(s => s.status === 'IN_PROGRESS');
 
   const handleTerminate = async (sessionId: string) => {
-    if (window.confirm("Are you sure you want to TERMINATE this exam session? The student will be disqualified and receive a score of 0.")) {
-      await api.sessions.terminate(sessionId);
-      setSelectedSessionId(null);
-    }
+    showModal({
+      title: '⚠️ Terminate Session',
+      message: (
+        <div className="space-y-2">
+          <p>Are you sure you want to <strong className="text-red-600">TERMINATE</strong> this exam session?</p>
+          <p className="text-red-500 font-medium">The student will be disqualified and receive a score of 0.</p>
+        </div>
+      ),
+      type: 'delete',
+      confirmText: 'Terminate Session',
+      cancelText: 'Cancel',
+      showCancel: true,
+      onConfirm: async () => {
+        await api.sessions.terminate(sessionId);
+        setSelectedSessionId(null);
+      },
+    });
   };
 
   return (
@@ -76,7 +92,7 @@ export const ProctorView = () => {
                   <p className="text-white font-bold truncate text-lg shadow-sm">{student?.name || session.studentId}</p>
                   <div className="flex justify-between text-gray-300 text-xs mt-1 font-medium">
                     <span>{session.examId}</span>
-                    <span className="font-mono">{Math.floor((Date.now() - (session.startTime || 0)) / 60000)}m elapsed</span>
+                    <span className="font-mono">{Math.floor((getServerTime() - (session.startTime || 0)) / 60000)}m elapsed</span>
                   </div>
                 </div>
               </div>
@@ -100,7 +116,13 @@ export const ProctorView = () => {
                      if (msg) {
                        const sessionId = `${session.studentId}_${session.examId}`;
                        api.sessions.sendWarning(sessionId, msg);
-                       alert("Warning sent!");
+                       showModal({
+                         title: '✅ Warning Sent',
+                         message: 'The warning has been sent to the student.',
+                         type: 'success',
+                         showCancel: false,
+                         confirmText: 'OK',
+                       });
                      }
                    }}
                  >
@@ -171,7 +193,7 @@ export const ProctorView = () => {
                            <Clock size={18} /> <span className="text-xs font-bold uppercase">Elapsed Time</span>
                         </div>
                         <p className="text-2xl font-mono font-bold text-gray-900 dark:text-white">
-                          {Math.floor((Date.now() - (selectedSession.startTime || 0)) / 60000)}m
+                          {Math.floor((getServerTime() - (selectedSession.startTime || 0)) / 60000)}m
                         </p>
                      </Card>
                      <Card noPadding className="p-4 bg-red-50 dark:bg-red-900/10 border-0">
@@ -201,7 +223,13 @@ export const ProctorView = () => {
                          if (msg) {
                            const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
                            api.sessions.sendWarning(sessionId, msg);
-                           alert("Warning sent!");
+                           showModal({
+                             title: '✅ Warning Sent',
+                             message: 'The warning has been sent to the student.',
+                             type: 'success',
+                             showCancel: false,
+                             confirmText: 'OK',
+                           });
                          }
                        }}
                     >
@@ -215,9 +243,21 @@ export const ProctorView = () => {
                          if (minutes && !isNaN(Number(minutes)) && Number(minutes) > 0) {
                            const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
                            api.sessions.extendTime(sessionId, Number(minutes));
-                           alert(`✅ Granted ${minutes} extra minutes to this student!`);
+                           showModal({
+                             title: '🎁 Time Extended',
+                             message: `Granted ${minutes} extra minutes to this student!`,
+                             type: 'success',
+                             showCancel: false,
+                             confirmText: 'OK',
+                           });
                          } else if (minutes) {
-                           alert("Please enter a valid number of minutes.");
+                           showModal({
+                             title: 'Invalid Input',
+                             message: 'Please enter a valid number of minutes.',
+                             type: 'error',
+                             showCancel: false,
+                             confirmText: 'OK',
+                           });
                          }
                        }}
                     >
@@ -298,6 +338,19 @@ export const ProctorView = () => {
         </div>
         );
       })()}
+      
+      {/* Modal for dialogs */}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

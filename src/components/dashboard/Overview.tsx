@@ -2,6 +2,7 @@ import React from 'react';
 import { Users, BookOpen, Video, ClipboardCheck, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { UserRole } from '../../types';
 import { useApp } from '../../contexts/AppContext';
+import { getServerTime } from '../../services/serverTime';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 
@@ -155,7 +156,7 @@ export const Overview = () => {
                      </div>
                      <div className="text-right">
                         <span className="text-xs font-mono text-gray-400 block">
-                          {Math.floor((Date.now() - (s.startTime || 0)) / 60000)}m
+                          {Math.floor((getServerTime() - (s.startTime || 0)) / 60000)}m
                         </span>
                         {(s.violations || []).length > 0 && (
                           <span className="text-[10px] font-bold text-red-500 flex items-center justify-end gap-1">

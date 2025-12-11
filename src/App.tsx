@@ -5,6 +5,7 @@ import { AuthState, User, Program, Exam, StudentSession, UserRole, Violation, Mo
 import { AppContext } from './contexts/AppContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { api } from './services/api';
+import { initServerTimeSync } from './services/serverTime';
 import { Button } from './components/ui/Button';
 
 // Components
@@ -49,6 +50,17 @@ const App = () => {
       // Don't throw - allow app to continue
     }
   };
+
+  // --- Server Time Synchronization ---
+  // Initialize server time sync early to prevent timezone issues
+  // This runs once when the app first loads
+  useEffect(() => {
+    initServerTimeSync().then(() => {
+      console.log('⏰ Server time synchronized for exam scheduling');
+    }).catch((err) => {
+      console.error('Server time sync failed:', err);
+    });
+  }, []);
 
   // --- Session Persistence: Restore auth on page load ---
   useEffect(() => {

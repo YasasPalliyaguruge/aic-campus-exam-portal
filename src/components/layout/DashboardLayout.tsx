@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Library, BookOpen, Video, GraduationCap, Moon, Sun, LogOut, Menu, X, FileCheck } from 'lucide-react';
+import { LayoutDashboard, Users, Library, FileText, Video, GraduationCap, Moon, Sun, LogOut, Menu, X, FileCheck } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -30,10 +30,9 @@ export const DashboardLayout = ({ children }: { children?: React.ReactNode }) =>
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-4 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
-          <div className="bg-violet-100 dark:bg-violet-900/30 p-1.5 rounded-lg">
-            <BookOpen size={20} />
-          </div>
+        <div className="flex items-center gap-2">
+          <img src="/images/AIC_Campus_Logo.png" alt="AIC" className="h-8 w-auto object-contain" />
+          <img src="/images/IPAC_Logo.png" alt="IPAC" className="h-8 w-auto object-contain" />
           <span className="font-extrabold tracking-tight text-gray-900 dark:text-white">AIC CAMPUS</span>
         </div>
         <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
@@ -54,11 +53,10 @@ export const DashboardLayout = ({ children }: { children?: React.ReactNode }) =>
         fixed md:sticky top-0 h-screen w-72 bg-white/80 dark:bg-gray-900/90 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 z-50 flex flex-col shadow-xl shadow-gray-200/50 dark:shadow-none transition-transform duration-300 ease-in-out
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="p-8 flex justify-between items-start">
-          <div className="flex items-center gap-3 text-violet-600 dark:text-violet-400">
-            <div className="bg-violet-100 dark:bg-violet-900/30 p-2 rounded-lg">
-              <BookOpen size={28} />
-            </div>
+        <div className="p-6 flex justify-between items-start">
+          <div className="flex items-center gap-3">
+            <img src="/images/AIC_Campus_Logo.png" alt="AIC Campus" className="h-10 w-auto object-contain" />
+            <img src="/images/IPAC_Logo.png" alt="IPAC" className="h-10 w-auto object-contain" />
             <div className="leading-none">
                <span className="block text-lg font-extrabold tracking-tight text-gray-900 dark:text-white">AIC CAMPUS</span>
                <span className="block text-[10px] font-bold text-violet-500 tracking-widest">EXAM PORTAL</span>
@@ -74,7 +72,7 @@ export const DashboardLayout = ({ children }: { children?: React.ReactNode }) =>
           <NavItem to="/dashboard" icon={LayoutDashboard} label="Overview" />
           <NavItem to="/dashboard/students" icon={Users} label="Students" />
           <NavItem to="/dashboard/academic" icon={Library} label="Academics" />
-          <NavItem to="/dashboard/exams" icon={BookOpen} label="Exams" />
+          <NavItem to="/dashboard/exams" icon={FileText} label="Exams" />
           <div className="mt-8 px-4 mb-3 text-[11px] font-extrabold text-gray-400 uppercase tracking-widest">Execution</div>
           <NavItem to="/dashboard/proctor" icon={Video} label="Live Proctoring" />
           <NavItem to="/dashboard/review" icon={FileCheck} label="Review Submissions" />

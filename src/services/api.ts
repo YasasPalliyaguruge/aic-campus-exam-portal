@@ -5,6 +5,7 @@ import {
 import { signInWithEmailAndPassword, signOut, signInAnonymously } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { User, Exam, StudentSession, Violation, UserRole, Program, Module } from '../types';
+import { getServerTime, formatServerTime, resyncServerTime, getServerTimeDiagnostics } from './serverTime';
 
 // Helper to convert Firestore snapshot to typed array
 const convertSnapshot = <T>(snapshot: any) => {
@@ -90,24 +91,39 @@ export const api = {
 
               if (!matchedExam) throw new Error("Invalid Access Code");
               
-              // ===== SCHEDULE VALIDATION =====
-              const now = new Date();
+              // ===== SCHEDULE VALIDATION (SERVER TIME - SECURE) =====
+              // CRITICAL SECURITY: Force re-sync server time before validation
+              // This fetches the ACTUAL time from Firebase servers using serverTimestamp()
+              // It is completely immune to client clock manipulation
+              console.log('🔐 Re-syncing server time for schedule validation...');
+              await resyncServerTime();
+              
+              const serverNow = getServerTime(); // ACTUAL server timestamp
+              const diagnostics = getServerTimeDiagnostics();
+              console.log('🕐 Server time for validation:', diagnostics.serverTimeUTC);
+              console.log('   Client time:', diagnostics.clientTimeUTC);
+              console.log('   Offset:', diagnostics.offsetSeconds, 'seconds');
               
               if (matchedExam.scheduledStart) {
-                  const startTime = new Date(matchedExam.scheduledStart);
-                  if (now < startTime) {
-                      const formattedStart = startTime.toLocaleString();
+                  const startTime = new Date(matchedExam.scheduledStart).getTime();
+                  console.log('   Scheduled start:', new Date(startTime).toISOString());
+                  if (serverNow < startTime) {
+                      // Format for display in user's local timezone
+                      const formattedStart = formatServerTime(startTime);
                       throw new Error(`❌ Exam hasn't started yet.\n\nThe exam will be available on:\n📅 ${formattedStart}\n\nPlease try again at the scheduled time.`);
                   }
               }
               
               if (matchedExam.scheduledEnd) {
-                  const endTime = new Date(matchedExam.scheduledEnd);
-                  if (now > endTime) {
-                      const formattedEnd = endTime.toLocaleString();
+                  const endTime = new Date(matchedExam.scheduledEnd).getTime();
+                  console.log('   Scheduled end:', new Date(endTime).toISOString());
+                  if (serverNow > endTime) {
+                      // Format for display in user's local timezone
+                      const formattedEnd = formatServerTime(endTime);
                       throw new Error(`❌ Exam has ended.\n\nThis exam closed on:\n📅 ${formattedEnd}\n\nPlease contact your instructor if you need assistance.`);
                   }
               }
+              console.log('✅ Schedule validation passed - exam is currently accessible');
               // ===== END SCHEDULE VALIDATION =====
               
               // Initialize session if it doesn't exist
@@ -268,7 +284,7 @@ export const api = {
         const sessionId = `${studentId}_${examId}`;
         await updateDoc(doc(db, 'sessions', sessionId), {
             status: 'IN_PROGRESS',
-            startTime: Date.now()
+            startTime: getServerTime() // Use server time for accurate timer calculation
         });
     },
     submit: async (studentId: string, examId: string, answers: Record<string, any>, uploadedFiles?: any[]) => {
@@ -277,7 +293,7 @@ export const api = {
         // Update session with answers only - no auto grading
         await updateDoc(doc(db, 'sessions', sessionId), {
             status: 'SUBMITTED',
-            submitTime: Date.now(),
+            submitTime: getServerTime(), // Use server time
             answers,
             uploadedFiles: uploadedFiles || []
         });
@@ -319,7 +335,7 @@ export const api = {
             questionScores,
             graderNotes,
             score: totalScore,
-            gradedAt: Date.now()
+            gradedAt: getServerTime() // Use server time
         });
         
         console.log(`✅ Manual grade updated: ${questionScore} pts for question ${questionId}. New Total: ${totalScore}`);
@@ -359,7 +375,7 @@ export const api = {
         const sessionRef = doc(db, 'sessions', sessionId);
         await updateDoc(sessionRef, {
             status: 'SUBMITTED',
-            submitTime: Date.now(),
+            submitTime: getServerTime(), // Use server time
             score: 0, // Disqualified or ended without submission
             feedback: 'Session terminated by proctor.',
             isTerminated: true // Mark as terminated - cannot be reopened

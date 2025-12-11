@@ -4,6 +4,7 @@ import { CheckCircle, LogOut, BookOpen, Clock, Award, AlertTriangle, File, FileT
 import { UserRole } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
+import { getServerTime } from '../../services/serverTime';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -60,7 +61,8 @@ export const StudentReview = () => {
     : null;
 
   // Check if student can still edit (exam window still open and not graded)
-  const now = new Date();
+  // SECURITY: Use server time to prevent clock manipulation
+  const serverNow = getServerTime(); // Server timestamp in milliseconds
   const canStillEdit = (() => {
     // Check if session was terminated by admin
     if (session.isTerminated) return false;
@@ -68,24 +70,24 @@ export const StudentReview = () => {
     // Must be SUBMITTED (not COMPLETED which means graded)
     if (session.status !== 'SUBMITTED') return false;
     
-    // Check if exam window is still open
+    // Check if exam window is still open (using server time)
     if (exam.scheduledEnd) {
-      const endTime = new Date(exam.scheduledEnd);
-      if (now > endTime) return false; // Exam window closed
+      const endTime = new Date(exam.scheduledEnd).getTime();
+      if (serverNow > endTime) return false; // Exam window closed
     }
     
-    // Check if there's still individual time remaining
+    // Check if there's still individual time remaining (using server time)
     if (session.startTime) {
       const extraSeconds = (session.extraTimeMinutes || 0) * 60;
       const totalSeconds = (exam.durationMinutes * 60) + extraSeconds;
-      const elapsedSeconds = Math.floor((now.getTime() - session.startTime) / 1000);
+      const elapsedSeconds = Math.floor((serverNow - session.startTime) / 1000);
       if (elapsedSeconds >= totalSeconds) return false; // Individual time expired
     }
     
     return true;
   })();
 
-  // Calculate remaining time for display
+  // Calculate remaining time for display (using server time)
   const getRemainingTime = () => {
     if (!session.startTime || !exam.scheduledEnd) return null;
     
@@ -94,7 +96,7 @@ export const StudentReview = () => {
     const individualEnd = session.startTime + ((exam.durationMinutes * 60) + extraSeconds) * 1000;
     
     const effectiveEnd = Math.min(endTime, individualEnd);
-    const remaining = Math.floor((effectiveEnd - now.getTime()) / 1000 / 60);
+    const remaining = Math.floor((effectiveEnd - serverNow) / 1000 / 60);
     
     return remaining > 0 ? remaining : 0;
   };
@@ -236,9 +238,10 @@ export const StudentReview = () => {
                   )}
                 </div>
 
-                <h3 className="font-semibold text-gray-900 dark:text-white text-lg mb-4">
-                  {question.text}
-                </h3>
+                <div 
+                  className="font-semibold text-gray-900 dark:text-white text-lg mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
+                  dangerouslySetInnerHTML={{ __html: question.text }}
+                />
 
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border-l-4 border-violet-500">
                   <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
@@ -255,8 +258,11 @@ export const StudentReview = () => {
                       </div>
                     ) : (
                       <div className="prose prose-violet dark:prose-invert max-w-none">
-                        {typeof answer === 'string' && (answer.includes('<p>') || answer.includes('<ul>') || answer.includes('<b>')) ? (
-                          <div dangerouslySetInnerHTML={{ __html: answer }} className="text-gray-900 dark:text-white" />
+                        {typeof answer === 'string' && /<[a-z][\s\S]*>/i.test(answer) ? (
+                          <div 
+                            dangerouslySetInnerHTML={{ __html: answer }} 
+                            className="text-gray-900 dark:text-white [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2"
+                          />
                         ) : (
                           <p className="text-gray-900 dark:text-white whitespace-pre-wrap">{answer}</p>
                         )}

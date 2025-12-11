@@ -64,6 +64,16 @@ Visit `http://localhost:3000` to access the portal.
   - Extend individual time
   - Terminate sessions
 
+### ✍️ Rich Exam Experience
+
+- **Advanced Rich Text Editor**: 
+  - Format questions and answers with Bold, Italic, Lists, and Links
+  - **Custom Tables**: Create sized tables with high-contrast styling
+  - **Multimedia Support**: Questions support formatted text
+- **Modern UI**:
+  - **Custom Modals**: Beautiful, animated dialogs for all interactions
+  - **Dark Mode**: Fully supported across all interfaces
+
 ### ⏱️ Exam Scheduling
 
 - **Time Window Enforcement**: Students can only login during scheduled times

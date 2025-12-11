@@ -55,6 +55,12 @@
       .rich-text-content i, .rich-text-content em { font-style: italic; }
       .rich-text-content u { text-decoration: underline; }
       .rich-text-content p { margin-bottom: 0.5rem; }
+
+      /* Hide browser default password reveal button */
+      input[type="password"]::-ms-reveal,
+      input[type="password"]::-ms-clear {
+        display: none;
+      }
     </style>
   <script type="importmap">
 {

@@ -7,7 +7,7 @@ import { Badge } from '../ui/Badge';
 import { Exam, StudentSession, User } from '../../types';
 
 export const StudentReview = () => {
-  const { exams, sessions, users } = useApp();
+  const { exams, sessions, users, programs } = useApp();
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
@@ -19,92 +19,570 @@ export const StudentReview = () => {
     ? completedSessions.filter(s => s.examId === selectedExamId)
     : [];
 
+  // Find selected session from completedSessions (not all sessions)
   const selectedSession = selectedSessionId 
-    ? sessions.find(s => `${s.studentId}_${s.examId}` === selectedSessionId)
+    ? completedSessions.find(s => `${s.studentId}_${s.examId}` === selectedSessionId)
     : null;
 
-  const selectedExam = selectedSession 
-    ? exams.find(e => e.id === selectedSession.examId)
-    : null;
+  // Find the exam - use selectedExamId first, fallback to session's examId
+  const selectedExam = selectedExamId
+    ? exams.find(e => e.id === selectedExamId)
+    : selectedSession 
+      ? exams.find(e => e.id === selectedSession.examId)
+      : null;
 
-  const selectedStudent = selectedSession
-    ? users.find(u => u.id === selectedSession.studentId)
-    : null;
+  // Get student info - try multiple sources
+  const getStudentInfo = () => {
+    if (!selectedSession) return null;
+    
+    // 1. Try to find in users array
+    const userFromList = users.find(u => u.id === selectedSession.studentId);
+    if (userFromList) return userFromList;
+    
+    // 2. Try to find using studentId field that might be different
+    const userByStudentId = users.find(u => u.studentId === selectedSession.studentId);
+    if (userByStudentId) return userByStudentId;
+    
+    // 3. Look up from exam's assignedStudents and find matching user
+    if (selectedExam) {
+      for (const assignedId of selectedExam.assignedStudents || []) {
+        const assignedUser = users.find(u => u.id === assignedId);
+        if (assignedUser) {
+          // Check if this user's credential matches the session
+          const code = selectedExam.studentCredentials?.[assignedId];
+          if (code) {
+            // This could be the right student - return it
+            return assignedUser;
+          }
+        }
+      }
+    }
+    
+    // 4. Create a minimal fallback from session ID
+    // Extract student ID from session ID format: u_{studentId}_exam_{examId}
+    const sessionIdParts = selectedSession.id?.split('_exam_');
+    const extractedStudentId = sessionIdParts?.[0]?.replace('u_', '') || selectedSession.studentId;
+    
+    return {
+      id: selectedSession.studentId,
+      name: `Student ${extractedStudentId}`,
+      email: 'N/A',
+      studentId: extractedStudentId,
+      role: 'STUDENT' as any
+    };
+  };
 
-  // PDF Export Function
+  const selectedStudent = getStudentInfo();
+
+  // PDF Export Function - Professional Answer Script with Logo, Module, Program
   const handleExportPDF = async () => {
-    if (!selectedSession || !selectedExam || !selectedStudent) return;
+    // Debug logging to identify the issue
+    console.log('PDF Export - Session:', selectedSession);
+    console.log('PDF Export - Exam:', selectedExam);
+    console.log('PDF Export - Student:', selectedStudent);
+    
+    if (!selectedSession || !selectedExam) {
+      console.error('Missing data for PDF export:', { selectedSession, selectedExam, selectedStudent });
+      alert('Unable to export PDF. Missing session or exam data. Please refresh the page and try again.');
+      return;
+    }
 
     // Simple HTML to PDF conversion
-    const printWindow = window.open('', '', 'width=800,height=600');
-    if (!printWindow) return;
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      alert('Pop-up blocked. Please allow pop-ups for PDF export and try again.');
+      return;
+    }
+
+    // Find module and program info
+    let moduleName = 'N/A';
+    let moduleCode = 'N/A';
+    let programName = 'N/A';
+    
+    if (selectedExam.moduleId && programs) {
+      for (const program of programs) {
+        const module = program.modules?.find(m => m.id === selectedExam.moduleId);
+        if (module) {
+          moduleName = module.name;
+          moduleCode = module.code;
+          programName = program.name;
+          break;
+        }
+      }
+    }
+
+    const totalPoints = selectedExam.questions.reduce((sum, q) => sum + q.points, 0);
+    const scorePercentage = selectedSession.score !== undefined 
+      ? Math.round((selectedSession.score / totalPoints) * 100) 
+      : null;
 
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Exam Submission - ${selectedStudent.name}</title>
+        <title>Answer Script - ${selectedStudent?.name || 'Unknown Student'} - ${selectedExam.title}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
-          h1 { color: #333; border-bottom: 3px solid #8b5cf6; padding-bottom: 10px; }
-          h2 { color: #555; margin-top: 30px; }
-          .header { margin-bottom: 30px; }
-          .info-grid { display: grid; grid-template-columns: 150px 1fr; gap: 10px; margin-bottom: 20px; }
-          .info-label { font-weight: bold; }
-          .question { margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
-          .question-header { background: #f3f4f6; padding: 10px; margin: -20px -20px 15px -20px; border-radius: 8px 8px 0 0; }
-          .answer { margin-top: 10px; padding: 15px; background: #fafafa; border-left: 4px solid #8b5cf6; }
-          .file-list { margin-top: 20px; padding: 15px; background: #eff6ff; border-radius: 8px; }
-          .file-item { margin: 5px 0; }
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+          
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          
+          body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            padding: 30px 40px; 
+            max-width: 900px; 
+            margin: 0 auto; 
+            color: #1f2937;
+            line-height: 1.6;
+            background: white;
+          }
+          
+          /* ========== HEADER SECTION ========== */
+          .header {
+            text-align: center;
+            margin-bottom: 35px;
+            padding-bottom: 25px;
+            border-bottom: 4px solid #7c3aed;
+            background: linear-gradient(135deg, #faf5ff 0%, #f0f9ff 100%);
+            margin: -30px -40px 35px -40px;
+            padding: 30px 40px 25px;
+          }
+          
+          .logo-container {
+            margin-bottom: 20px;
+          }
+          
+          .logo-container img {
+            height: 80px;
+            width: auto;
+            margin-bottom: 10px;
+          }
+          
+          .institution-name {
+            font-size: 32px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 3px;
+            margin-bottom: 5px;
+          }
+          
+          .tagline {
+            color: #6b7280;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            font-weight: 600;
+          }
+          
+          .document-title {
+            font-size: 26px;
+            font-weight: 700;
+            color: #1f2937;
+            margin: 25px 0 15px;
+            letter-spacing: 1px;
+          }
+          
+          .exam-info {
+            margin-top: 15px;
+          }
+          
+          .exam-title {
+            font-size: 20px;
+            color: #374151;
+            font-weight: 600;
+            margin-bottom: 8px;
+          }
+          
+          .module-program {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+          }
+          
+          .info-badge {
+            background: white;
+            padding: 8px 20px;
+            border-radius: 25px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #4b5563;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
+          }
+          
+          .info-badge strong {
+            color: #7c3aed;
+          }
+          
+          /* ========== STUDENT INFO SECTION ========== */
+          .student-section {
+            background: linear-gradient(135deg, #faf5ff 0%, #fef3c7 50%, #dbeafe 100%);
+            border-radius: 16px;
+            padding: 25px 30px;
+            margin-bottom: 30px;
+            border: 2px solid #e5e7eb;
+          }
+          
+          .student-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 20px;
+          }
+          
+          .student-identity h2 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 8px;
+          }
+          
+          .student-id-box {
+            display: inline-block;
+            background: #1f2937;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 1px;
+          }
+          
+          .submission-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+          }
+          
+          .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #f3f4f6;
+          }
+          
+          .stat-card label {
+            display: block;
+            font-size: 10px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+            font-weight: 600;
+          }
+          
+          .stat-card .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1f2937;
+          }
+          
+          .stat-card .value.pass { color: #059669; }
+          .stat-card .value.fail { color: #dc2626; }
+          .stat-card .value.pending { color: #d97706; }
+          
+          /* ========== ANSWERS SECTION ========== */
+          .answers-header {
+            font-size: 20px;
+            font-weight: 700;
+            color: #1f2937;
+            margin: 35px 0 20px;
+            padding-bottom: 12px;
+            border-bottom: 3px solid #7c3aed;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          
+          .answers-header::before {
+            content: '📝';
+            font-size: 24px;
+          }
+          
+          .question-card {
+            margin-bottom: 25px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
+            page-break-inside: avoid;
+          }
+          
+          .question-header {
+            background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+          
+          .question-num {
+            background: rgba(255,255,255,0.2);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+          }
+          
+          .question-meta {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+          }
+          
+          .question-type {
+            font-size: 11px;
+            text-transform: uppercase;
+            opacity: 0.9;
+            letter-spacing: 1px;
+          }
+          
+          .question-points {
+            background: rgba(255,255,255,0.25);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 13px;
+          }
+          
+          .question-body {
+            padding: 20px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          
+          .question-text {
+            font-size: 15px;
+            font-weight: 500;
+            color: #1f2937;
+            line-height: 1.7;
+          }
+          
+          .answer-box {
+            padding: 20px;
+            background: #fffbeb;
+          }
+          
+          .answer-label {
+            font-size: 11px;
+            color: #92400e;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+            font-weight: 700;
+          }
+          
+          .answer-text {
+            font-size: 14px;
+            color: #1f2937;
+            line-height: 1.8;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #f59e0b;
+          }
+          
+          .answer-text p { margin-bottom: 10px; }
+          .answer-text ul, .answer-text ol { margin-left: 20px; margin-bottom: 10px; }
+          
+          .no-answer {
+            color: #9ca3af;
+            font-style: italic;
+            padding: 15px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            text-align: center;
+          }
+          
+          /* ========== FILES SECTION ========== */
+          .files-section {
+            margin-top: 35px;
+            background: #eff6ff;
+            border-radius: 16px;
+            padding: 25px;
+            border: 2px solid #bfdbfe;
+          }
+          
+          .files-header {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          
+          .files-header::before {
+            content: '📎';
+            font-size: 20px;
+          }
+          
+          .file-item {
+            background: white;
+            padding: 12px 18px;
+            border-radius: 10px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #dbeafe;
+          }
+          
+          .file-name {
+            font-weight: 600;
+            color: #1f2937;
+          }
+          
+          .file-meta {
+            font-size: 12px;
+            color: #6b7280;
+          }
+          
+          .files-note {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #6b7280;
+            font-style: italic;
+            text-align: center;
+          }
+          
+          /* ========== FOOTER ========== */
+          .footer {
+            margin-top: 45px;
+            padding-top: 20px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+          }
+          
+          .footer p {
+            color: #9ca3af;
+            font-size: 11px;
+            margin-bottom: 5px;
+          }
+          
+          .footer .brand {
+            font-weight: 700;
+            color: #7c3aed;
+          }
+          
+          /* ========== PRINT STYLES ========== */
+          @media print {
+            body { padding: 15px 25px; }
+            .header { margin: -15px -25px 30px -25px; padding: 20px 25px; }
+            .question-card { page-break-inside: avoid; }
+            .student-section { page-break-inside: avoid; }
+          }
         </style>
       </head>
       <body>
+        <!-- HEADER -->
         <div class="header">
-          <h1>Exam Submission Report</h1>
-          <div class="info-grid">
-            <div class="info-label">Student:</div>
-            <div>${selectedStudent.name} (${selectedStudent.studentId || selectedStudent.email})</div>
-            <div class="info-label">Exam:</div>
-            <div>${selectedExam.title}</div>
-            <div class="info-label">Submitted:</div>
-            <div>${selectedSession.submitTime ? new Date(selectedSession.submitTime).toLocaleString() : 'N/A'}</div>
-            <div class="info-label">Score:</div>
-            <div>${selectedSession.score || 0} points</div>
+          <div class="logo-container">
+            <img src="/images/AIC_Campus_Logo.png" alt="AIC Campus Logo" onerror="this.style.display='none'" />
+            <div class="institution-name">AIC CAMPUS</div>
+          </div>
+          
+          <div class="document-title">📄 ANSWER SCRIPT</div>
+          
+          <div class="exam-info">
+            <div class="exam-title">${selectedExam.title}</div>
+            <div class="module-program">
+              <span class="info-badge"><strong>Module:</strong> ${moduleCode} - ${moduleName}</span>
+              <span class="info-badge"><strong>Program:</strong> ${programName}</span>
+            </div>
           </div>
         </div>
 
-        <h2>Answers</h2>
-        ${selectedExam.questions.map((q, idx) => `
-          <div class="question">
-            <div class="question-header">
-              <strong>Question ${idx + 1}</strong> (${q.points} points)
-            </div>
-            <p><strong>${q.text}</strong></p>
-            <div class="answer">
-              <strong>Student Answer:</strong><br>
-              ${selectedSession.answers[q.id] 
-                ? (Array.isArray(selectedSession.answers[q.id]) 
-                    ? selectedSession.answers[q.id].join(', ') 
-                    : selectedSession.answers[q.id])
-                : '<em>No answer provided</em>'}
+        <!-- STUDENT INFORMATION -->
+        <div class="student-section">
+          <div class="student-main">
+            <div class="student-identity">
+              <h2>${selectedStudent?.name || 'Unknown Student'}</h2>
+              <div class="student-id-box">ID: ${selectedStudent?.studentId || selectedStudent?.email || 'N/A'}</div>
             </div>
           </div>
-        `).join('')}
+          
+          <div class="submission-stats">
+            <div class="stat-card">
+              <label>📅 Date Submitted</label>
+              <div class="value">${selectedSession.submitTime ? new Date(selectedSession.submitTime).toLocaleDateString() : 'N/A'}</div>
+            </div>
+            <div class="stat-card">
+              <label>⏰ Time</label>
+              <div class="value">${selectedSession.submitTime ? new Date(selectedSession.submitTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</div>
+            </div>
+            <div class="stat-card">
+              <label>📊 Score</label>
+              <div class="value ${scorePercentage !== null ? (scorePercentage >= 50 ? 'pass' : 'fail') : 'pending'}">${selectedSession.score !== undefined ? selectedSession.score : '-'} / ${totalPoints}</div>
+            </div>
+            <div class="stat-card">
+              <label>📈 Percentage</label>
+              <div class="value ${scorePercentage !== null ? (scorePercentage >= 50 ? 'pass' : 'fail') : 'pending'}">${scorePercentage !== null ? scorePercentage + '%' : 'Pending'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ANSWERS -->
+        <div class="answers-header">Student Answers</div>
+        
+        ${selectedExam.questions.map((q, idx) => {
+          const answer = selectedSession.answers[q.id];
+          const formattedAnswer = answer 
+            ? (Array.isArray(answer) 
+                ? answer.join(', ') 
+                : String(answer))
+            : null;
+          
+          return `
+          <div class="question-card">
+            <div class="question-header">
+              <span class="question-num">Question ${idx + 1}</span>
+              <div class="question-meta">
+                <span class="question-type">${q.type.replace('_', ' ')}</span>
+                <span class="question-points">${q.points} pts</span>
+              </div>
+            </div>
+            <div class="question-body">
+              <div class="question-text">${q.text}</div>
+            </div>
+            <div class="answer-box">
+              <div class="answer-label">✍️ Student's Response</div>
+              ${formattedAnswer 
+                ? `<div class="answer-text">${formattedAnswer}</div>`
+                : '<div class="no-answer">No answer provided</div>'}
+            </div>
+          </div>
+        `}).join('')}
 
         ${selectedSession.uploadedFiles && selectedSession.uploadedFiles.length > 0 ? `
-          <h2>Uploaded Files</h2>
-          <div class="file-list">
-            <p><strong>The student submitted the following files:</strong></p>
+          <div class="files-section">
+            <div class="files-header">Uploaded Files</div>
             ${selectedSession.uploadedFiles.map((file, idx) => `
               <div class="file-item">
-                ${idx + 1}. <strong>${file.name}</strong> (${file.type}, ${(file.size / 1024 / 1024).toFixed(2)} MB)
+                <span class="file-name">${idx + 1}. ${file.name}</span>
+                <span class="file-meta">${file.type} • ${(file.size / 1024 / 1024).toFixed(2)} MB</span>
               </div>
             `).join('')}
-            <p style="margin-top: 15px; font-style: italic; color: #666;">
-              Note: Files cannot be embedded in PDF. Please download them separately from the web interface.
-            </p>
+            <p class="files-note">Note: Files cannot be embedded in PDF. Download separately from the web interface.</p>
           </div>
         ` : ''}
+
+        <!-- FOOTER -->
+        <div class="footer">
+          <p>Generated on ${new Date().toLocaleString()}</p>
+          <p><span class="brand">AIC Campus</span> Exam Portal • Official Answer Script</p>
+        </div>
       </body>
       </html>
     `;
@@ -112,9 +590,11 @@ export const StudentReview = () => {
     printWindow.document.write(html);
     printWindow.document.close();
     printWindow.focus();
+    
+    // Wait for content to load then print
     setTimeout(() => {
       printWindow.print();
-    }, 250);
+    }, 800);
   };
 
   // Exam Selection View
@@ -191,14 +671,23 @@ export const StudentReview = () => {
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {examSessions.map(session => {
-                  const student = users.find(u => u.id === session.studentId);
+                  const student = users.find(u => u.id === session.studentId) || 
+                                  users.find(u => u.studentId === session.studentId);
+                  
+                  // Extract clean student ID from session ID if needed
+                  const sessionIdParts = session.id?.split('_exam_');
+                  const extractedStudentId = sessionIdParts?.[0]?.replace('u_', '') || session.studentId;
+                  
+                  const displayName = student?.name || `Student ${extractedStudentId}`;
+                  const displayId = student?.studentId || student?.email || extractedStudentId;
+                  
                   return (
                     <tr key={`${session.studentId}_${session.examId}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="p-4 font-medium text-gray-900 dark:text-white">
-                        {student?.name || session.studentId}
+                        {displayName}
                       </td>
                       <td className="p-4 text-gray-500 font-mono text-xs">
-                        {student?.studentId || student?.email}
+                        {displayId}
                       </td>
                       <td className="p-4">
                         <Badge color={session.status === 'COMPLETED' ? 'emerald' : 'blue'}>
@@ -299,7 +788,10 @@ export const StudentReview = () => {
                     <Badge>Question {idx + 1}</Badge>
                     <span className="text-sm text-gray-500">{question.points} points</span>
                   </div>
-                  <h4 className="font-semibold text-gray-900 dark:text-white mb-4">{question.text}</h4>
+                  <div 
+                    className="font-semibold text-gray-900 dark:text-white mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
+                    dangerouslySetInnerHTML={{ __html: question.text }}
+                  />
                 </div>
                 {score !== undefined && (
                   <div className="text-right">
@@ -320,7 +812,7 @@ export const StudentReview = () => {
                     </div>
                   ) : (
                     <div 
-                      className="prose dark:prose-invert max-w-none text-gray-900 dark:text-white"
+                      className="prose dark:prose-invert max-w-none text-gray-900 dark:text-white [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2"
                       dangerouslySetInnerHTML={{ __html: answer }}
                     />
                   )

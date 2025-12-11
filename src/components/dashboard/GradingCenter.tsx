@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Trash2 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
 import { Button } from '../ui/Button';
@@ -7,6 +7,7 @@ import { Card } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Badge } from '../ui/Badge';
 import { TextArea } from '../ui/TextArea';
+import { Modal, useModal } from '../ui/Modal';
 
 export const GradingCenter = () => {
   const { sessions, exams, users, isLoading, refreshData } = useApp();
@@ -14,6 +15,9 @@ export const GradingCenter = () => {
   const [scoreInputs, setScoreInputs] = useState<Record<string, number>>({});
   const [feedbackInputs, setFeedbackInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  
+  // Beautiful modal dialogs
+  const { modalState, showModal, hideModal } = useModal();
 
   const submittedSessions = sessions.filter(s => s.status === 'SUBMITTED' || s.status === 'COMPLETED');
 
@@ -25,7 +29,7 @@ export const GradingCenter = () => {
     setFeedbackInputs(prev => ({ ...prev, [qId]: feedback }));
   };
 
-  const handleSaveGrade = async (examId: string, questionId: string) => {
+  const handleSaveGrade = async (studentId: string, examId: string, questionId: string) => {
     if (!selectedSessionId || saving) return;
     
     const score = scoreInputs[questionId] ?? 0;
@@ -34,7 +38,7 @@ export const GradingCenter = () => {
     setSaving(true);
     try {
       await api.sessions.updateGrade(
-        selectedSessionId,
+        studentId,
         examId,
         questionId,
         score,
@@ -44,13 +48,73 @@ export const GradingCenter = () => {
       // Refresh data to show updated scores
       await refreshData();
       
-      alert('Grade saved successfully!');
+      showModal({
+        title: 'Grade Saved',
+        message: 'The grade has been saved successfully.',
+        type: 'success',
+        showCancel: false,
+        confirmText: 'OK',
+      });
     } catch (error: any) {
       console.error('Error saving grade:', error);
-      alert(`Error saving grade: ${error.message}`);
+      showModal({
+        title: 'Error Saving Grade',
+        message: error.message || 'Failed to save the grade. Please try again.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
     } finally {
       setSaving(false);
     }
+  };
+
+  // Delete session with confirmation
+  const doDeleteSession = async (sessionId: string) => {
+    setSaving(true);
+    try {
+      await api.sessions.delete(sessionId);
+      await refreshData();
+      showModal({
+        title: 'Deleted',
+        message: 'The submission has been permanently deleted.',
+        type: 'success',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+    } catch (error: any) {
+      console.error('Error deleting session:', error);
+      showModal({
+        title: 'Delete Failed',
+        message: error.message || 'Failed to delete the submission. Please try again.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteSession = (sessionId: string, studentName: string, examTitle: string) => {
+    showModal({
+      title: 'Delete Submission?',
+      message: (
+        <div className="space-y-3">
+          <p>Are you sure you want to permanently delete this student's answer?</p>
+          <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg text-sm">
+            <p><strong>📝 Exam:</strong> {examTitle}</p>
+            <p><strong>👤 Student:</strong> {studentName}</p>
+          </div>
+          <p className="text-red-600 dark:text-red-400 font-medium">This action cannot be undone!</p>
+        </div>
+      ),
+      type: 'delete',
+      confirmText: 'Delete Permanently',
+      cancelText: 'Cancel',
+      showCancel: true,
+      onConfirm: () => doDeleteSession(sessionId),
+    });
   };
 
   // Detail view for grading a specific submission
@@ -87,9 +151,9 @@ export const GradingCenter = () => {
              const renderAnswer = (ans: any) => {
                if (Array.isArray(ans)) return <div className="flex flex-wrap gap-2">{ans.map((a, i) => <Badge key={i} color="slate">{a}</Badge>)}</div>;
                
-               // Check if it looks like HTML (basic check)
-               if (typeof ans === 'string' && (ans.includes('<p>') || ans.includes('<ul>') || ans.includes('<b>'))) {
-                  return <div className="rich-text-content" dangerouslySetInnerHTML={{ __html: ans }} />;
+               // Check if it looks like HTML (regex pattern for any HTML tag)
+               if (typeof ans === 'string' && /<[a-z][\s\S]*>/i.test(ans)) {
+                  return <div className="prose dark:prose-invert max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2" dangerouslySetInnerHTML={{ __html: ans }} />;
                }
                
                return <p className="whitespace-pre-wrap">{ans || "(No Answer)"}</p>;
@@ -101,7 +165,10 @@ export const GradingCenter = () => {
                    <Badge color="slate">Question {idx + 1} ({q.type})</Badge>
                    <span className="font-bold text-gray-500 dark:text-gray-400">{q.points} pts</span>
                  </div>
-                 <p className="font-medium text-xl mb-6 text-gray-900 dark:text-gray-100">{q.text}</p>
+                 <div 
+                   className="font-medium text-xl mb-6 text-gray-900 dark:text-gray-100 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
+                   dangerouslySetInnerHTML={{ __html: q.text }}
+                 />
                  
                  <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 mb-6">
                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-widest font-bold mb-2">Student Answer</p>
@@ -136,7 +203,7 @@ export const GradingCenter = () => {
                        <Button 
                          loading={saving || isLoading} 
                          disabled={saving || isLoading}
-                         onClick={() => handleSaveGrade(session.examId, q.id)}
+                         onClick={() => handleSaveGrade(session.studentId, session.examId, q.id)}
                          className="w-full"
                        >
                          Save Grade
@@ -178,7 +245,7 @@ export const GradingCenter = () => {
               <th className="p-3 md:p-5 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Submitted</th>
               <th className="p-3 md:p-5 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Violations</th>
               <th className="p-3 md:p-5 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-              <th className="p-3 md:p-5"></th>
+              <th className="p-3 md:p-5 text-left text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -196,8 +263,19 @@ export const GradingCenter = () => {
                   <td className="p-3 md:p-5">
                     {s.score !== undefined ? <span className="font-bold text-emerald-600 dark:text-emerald-400">{s.score} pts</span> : <Badge color="amber">Pending Grading</Badge>}
                   </td>
-                  <td className="p-3 md:p-5 text-right">
-                    <Button size="sm" variant="secondary" onClick={() => setSelectedSessionId(`${s.studentId}_${s.examId}`)}>Grade <ChevronRight size={14}/></Button>
+                  <td className="p-3 md:p-5">
+                    <div className="flex items-center gap-2 justify-end">
+                      <Button size="sm" variant="secondary" onClick={() => setSelectedSessionId(`${s.studentId}_${s.examId}`)}>Grade <ChevronRight size={14}/></Button>
+                      <Button 
+                        size="sm" 
+                        variant="danger" 
+                        onClick={() => handleDeleteSession(s.id || `${s.studentId}_${s.examId}`, student?.name || 'Unknown', exam?.title || 'Unknown Exam')}
+                        disabled={saving}
+                        className="!px-2"
+                      >
+                        <Trash2 size={14}/>
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -207,6 +285,19 @@ export const GradingCenter = () => {
         </div>
         {submittedSessions.length === 0 && <div className="p-12 text-center text-gray-400">No submissions pending.</div>}
       </Card>
+      
+      {/* Beautiful Modal Dialog */}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };
