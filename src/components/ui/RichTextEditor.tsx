@@ -241,7 +241,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
         e.preventDefault(); // Prevent focus loss
         onAction();
       }}
-      className={`p-1.5 sm:p-2 rounded transition-colors ${
+      className={`p-1.5 sm:p-2 rounded-xl transition-colors ${
         active 
           ? 'bg-violet-500 text-white shadow-md' 
           : 'hover:bg-violet-100 dark:hover:bg-violet-900/30 text-gray-600 dark:text-gray-400 hover:text-violet-600 dark:hover:text-violet-400'
@@ -268,7 +268,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
   };
 
   return (
-    <div className={`relative flex flex-col border rounded-xl overflow-hidden transition-all bg-white dark:bg-gray-900 ${
+    <div className={`relative flex flex-col border rounded-2xl overflow-hidden transition-all bg-white/95 dark:bg-gray-900/95 shadow-sm shadow-gray-200/50 dark:shadow-black/10 backdrop-blur ${
       isFocused 
         ? 'border-violet-500/50 ring-2 ring-violet-500/20 shadow-lg shadow-violet-500/5' 
         : 'border-gray-200 dark:border-gray-800'
@@ -346,13 +346,13 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
 
       {/* Table Size Modal - Portal to body */}
       <ModalPortal isOpen={showTableModal}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-80 border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 fade-in duration-200">
+        <div className="bg-white/95 dark:bg-gray-800/95 rounded-3xl shadow-2xl p-6 w-80 border border-gray-200/80 dark:border-gray-700/80 animate-in zoom-in-95 fade-in duration-200 backdrop-blur-xl">
           <div className="flex justify-between items-center mb-5">
             <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
               <Table size={20} className="text-violet-500" /> Insert Table
             </h3>
             <button 
-              onClick={() => setShowTableModal(false)} 
+              onClick={() => setShowTableModal(false)}
               className="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <X size={18} />
@@ -365,7 +365,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
               <div className="flex items-center gap-3">
                 <button 
                   onClick={() => setTableRows(Math.max(1, tableRows - 1))}
-                  className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -375,11 +375,11 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
                   max="20" 
                   value={tableRows}
                   onChange={(e) => setTableRows(Math.min(20, Math.max(1, parseInt(e.target.value) || 1)))}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-center text-lg font-bold bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-2xl text-center text-lg font-bold bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                 />
                 <button 
                   onClick={() => setTableRows(Math.min(20, tableRows + 1))}
-                  className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
                   <Plus size={16} />
                 </button>
@@ -391,7 +391,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
               <div className="flex items-center gap-3">
                 <button 
                   onClick={() => setTableCols(Math.max(1, tableCols - 1))}
-                  className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
                   <Trash2 size={16} />
                 </button>
@@ -401,11 +401,11 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
                   max="10" 
                   value={tableCols}
                   onChange={(e) => setTableCols(Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-center text-lg font-bold bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-2xl text-center text-lg font-bold bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
                 />
                 <button 
                   onClick={() => setTableCols(Math.min(10, tableCols + 1))}
-                  className="p-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  className="p-2.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
                   <Plus size={16} />
                 </button>
@@ -413,7 +413,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
             </div>
             
             {/* Preview Grid */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-xl">
+            <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl">
               <p className="text-sm text-gray-500 mb-3 text-center font-medium">Preview: {tableRows} × {tableCols}</p>
               <div className="flex justify-center">
                 <div className="inline-grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.min(tableCols, 6)}, 1fr)` }}>
@@ -432,7 +432,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
             
             <button 
               onClick={insertTable}
-              className="w-full py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-violet-500/25"
+              className="w-full py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-full transition-all shadow-lg shadow-violet-500/25"
             >
               Insert Table
             </button>
@@ -442,7 +442,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
 
       {/* Link Modal - Portal to body */}
       <ModalPortal isOpen={showLinkModal}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-96 border border-gray-200 dark:border-gray-700 animate-in zoom-in-95 fade-in duration-200">
+        <div className="bg-white/95 dark:bg-gray-800/95 rounded-3xl shadow-2xl p-6 w-96 border border-gray-200/80 dark:border-gray-700/80 animate-in zoom-in-95 fade-in duration-200 backdrop-blur-xl">
           <div className="flex justify-between items-center mb-5">
             <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
               <Link size={20} className="text-violet-500" /> Insert Link
@@ -463,18 +463,18 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
                 value={linkUrl}
                 onChange={(e) => setLinkUrl(e.target.value)}
                 placeholder="https://example.com"
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-2xl bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-violet-500 focus:border-transparent"
                 autoFocus
               />
             </div>
             
-            <p className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
+            <p className="text-sm text-gray-500 bg-gray-50 dark:bg-gray-900 p-3 rounded-2xl">
               💡 Tip: Select text first, then add a link to make it clickable.
             </p>
             
             <button 
               onClick={insertLink}
-              className="w-full py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-violet-500/25"
+              className="w-full py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-full transition-all shadow-lg shadow-violet-500/25"
             >
               Insert Link
             </button>

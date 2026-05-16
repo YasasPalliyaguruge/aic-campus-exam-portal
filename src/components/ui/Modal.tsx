@@ -76,7 +76,7 @@ export const Modal: React.FC<ModalProps> = ({
       />
       
       {/* Modal */}
-      <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full animate-in zoom-in-95 fade-in duration-200 overflow-hidden">
+      <div className="relative bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 max-w-md w-full animate-in zoom-in-95 fade-in duration-200 overflow-hidden border border-white/80 dark:border-gray-800/80 backdrop-blur-xl">
         {/* Header accent line */}
         <div className={`h-1.5 w-full ${
           type === 'success' ? 'bg-gradient-to-r from-emerald-400 to-green-500' :
@@ -97,7 +97,7 @@ export const Modal: React.FC<ModalProps> = ({
         {/* Content */}
         <div className="p-6 pt-8">
           {/* Icon */}
-          <div className={`w-16 h-16 rounded-2xl ${iconConfig.bg} flex items-center justify-center mx-auto mb-5`}>
+          <div className={`w-16 h-16 rounded-3xl ${iconConfig.bg} flex items-center justify-center mx-auto mb-5 shadow-sm`}>
             <IconComponent size={32} className={iconConfig.color} />
           </div>
 

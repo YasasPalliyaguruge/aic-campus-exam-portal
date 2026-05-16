@@ -40,12 +40,12 @@ export const LoginPortal = () => {
       <div className="absolute inset-x-0 top-0 h-48 pointer-events-none bg-gradient-to-b from-white/80 to-transparent dark:from-gray-950/80" />
 
       <div className="absolute top-6 right-6">
-        <button onClick={toggleTheme} className="p-2 rounded-lg bg-white/90 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow transition-all text-gray-700 dark:text-gray-200">
+        <button onClick={toggleTheme} className="p-2.5 rounded-full bg-white/90 dark:bg-gray-900/90 border border-gray-200/80 dark:border-gray-800 shadow-lg shadow-gray-300/40 dark:shadow-black/20 hover:shadow-xl transition-all text-gray-700 dark:text-gray-200 backdrop-blur">
           {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
         </button>
       </div>
 
-      <div className="max-w-5xl w-full bg-white dark:bg-gray-950 rounded-xl shadow-2xl shadow-gray-300/50 dark:shadow-black/30 border border-white dark:border-gray-800 overflow-hidden flex flex-col md:flex-row relative z-10">
+      <div className="max-w-5xl w-full bg-white/90 dark:bg-gray-950/90 rounded-3xl shadow-2xl shadow-gray-300/50 dark:shadow-black/30 border border-white/80 dark:border-gray-800/80 overflow-hidden flex flex-col md:flex-row relative z-10 backdrop-blur-xl">
         
         {/* Left Side - Brand */}
         <div className="md:w-5/12 bg-gray-950 p-8 md:p-12 flex flex-col justify-between text-white relative overflow-hidden min-h-[220px] md:min-h-[620px]">
@@ -57,12 +57,12 @@ export const LoginPortal = () => {
               <img 
                 src="/images/AIC_Campus_Logo.png" 
                 alt="AIC Campus Logo" 
-                className="h-16 md:h-20 w-auto object-contain bg-white p-2 rounded-lg shadow-lg"
+                className="h-16 md:h-20 w-auto object-contain bg-white p-2 rounded-2xl shadow-lg"
               />
               <img 
                 src="/images/IPAC_Logo.png" 
                 alt="IPAC Logo" 
-                className="h-16 md:h-20 w-auto object-contain bg-white/10 p-2 rounded-lg backdrop-blur-sm border border-white/10"
+                className="h-16 md:h-20 w-auto object-contain bg-white/10 p-2 rounded-2xl backdrop-blur-sm border border-white/10"
               />
             </div>
             <h1 className="text-5xl md:text-6xl font-black tracking-tight mb-1">AIC</h1>
@@ -72,11 +72,11 @@ export const LoginPortal = () => {
             </p>
           </div>
           <div className="relative z-10 mt-8 hidden md:grid grid-cols-2 gap-3 text-left">
-            <div className="rounded-lg border border-white/10 bg-white/10 p-4 backdrop-blur">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur shadow-lg shadow-black/10">
               <p className="text-[11px] uppercase tracking-widest text-cyan-100/80 font-bold">Secure</p>
               <p className="mt-1 text-sm text-white/85">Timed exams with proctoring controls</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/10 p-4 backdrop-blur">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur shadow-lg shadow-black/10">
               <p className="text-[11px] uppercase tracking-widest text-emerald-100/80 font-bold">Reliable</p>
               <p className="mt-1 text-sm text-white/85">Autosaved student responses</p>
             </div>
@@ -85,23 +85,23 @@ export const LoginPortal = () => {
 
         {/* Right Side - Login Form */}
         <div className="md:w-7/12 p-6 md:p-12 flex flex-col justify-center">
-          <div className="inline-flex w-full rounded-lg bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-1 mb-9">
+          <div className="inline-flex w-full rounded-full bg-gray-100/90 dark:bg-gray-900/90 border border-gray-200/80 dark:border-gray-800/80 p-1.5 mb-9 shadow-inner shadow-gray-200/60 dark:shadow-black/20">
             <button 
               onClick={() => { setMode('STAFF'); setError(''); }}
-              className={`flex-1 rounded-md px-4 py-2.5 text-sm font-bold transition-all relative whitespace-nowrap ${mode === 'STAFF' ? 'bg-white dark:bg-gray-800 text-gray-950 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`flex-1 rounded-full px-4 py-2.5 text-sm font-bold transition-all relative whitespace-nowrap ${mode === 'STAFF' ? 'bg-white dark:bg-gray-800 text-gray-950 dark:text-white shadow-lg shadow-gray-200/70 dark:shadow-black/20' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               Admin & Staff
             </button>
             <button 
               onClick={() => { setMode('STUDENT'); setError(''); }}
-              className={`flex-1 rounded-md px-4 py-2.5 text-sm font-bold transition-all relative whitespace-nowrap ${mode === 'STUDENT' ? 'bg-white dark:bg-gray-800 text-gray-950 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              className={`flex-1 rounded-full px-4 py-2.5 text-sm font-bold transition-all relative whitespace-nowrap ${mode === 'STUDENT' ? 'bg-white dark:bg-gray-800 text-gray-950 dark:text-white shadow-lg shadow-gray-200/70 dark:shadow-black/20' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               Student Exam
             </button>
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium animate-shake border border-red-100 dark:border-red-900/30">
+            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-2xl text-sm font-medium animate-shake border border-red-100 dark:border-red-900/30">
               <div className="flex items-start gap-2">
                 <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
                 <div className="flex-1 whitespace-pre-line">{error}</div>
@@ -140,7 +140,7 @@ export const LoginPortal = () => {
                       <button 
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                       >
                         {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>

@@ -8,5 +8,5 @@ export const Badge = ({ children, color = 'violet' }: any) => {
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400',
     slate: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
   };
-  return <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wide uppercase ${colors[color] || colors.violet}`}>{children}</span>;
+  return <span className={`inline-flex items-center px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase ring-1 ring-inset ring-black/5 dark:ring-white/10 ${colors[color] || colors.violet}`}>{children}</span>;
 };
