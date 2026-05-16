@@ -46,6 +46,10 @@ interface StudentSession {
   submitTime?: number;
   violations?: unknown[];
   answers?: Record<string, unknown>;
+  draftAnswers?: Record<string, unknown>;
+  draftUploadedFiles?: unknown[];
+  draftSavedAt?: number;
+  draftRevision?: number;
   warnings?: string[];
   uploadedFiles?: unknown[];
   extraTimeMinutes?: number;
@@ -289,6 +293,35 @@ export const submitStudentSession = onCall(async (request) => {
     answers: request.data?.answers || {},
     uploadedFiles: request.data?.uploadedFiles || [],
   };
+  await ref.set(updates, { merge: true });
+  return { session: { ...session, ...updates }, serverNowMs: now };
+});
+
+export const saveStudentDraft = onCall(async (request) => {
+  const uid = requireAuthUid(request.auth);
+  const studentId = String(request.data?.studentId || '');
+  const examId = String(request.data?.examId || '');
+  if (!studentId || !examId) throw new HttpsError('invalid-argument', 'studentId and examId are required.');
+
+  const exam = await loadExam(examId);
+  const { ref, session } = await loadSession(studentId, examId);
+  assertSessionOwner(session, uid);
+
+  if (session.status !== 'WAITING' && session.status !== 'IN_PROGRESS') {
+    throw new HttpsError('failed-precondition', 'Drafts can only be saved while the exam is in progress.');
+  }
+  if (session.isTerminated) throw new HttpsError('failed-precondition', 'This session was terminated by the proctor.');
+
+  const now = Date.now();
+  assertWindowOpen(exam, now);
+
+  const updates: Partial<StudentSession> = {
+    draftAnswers: request.data?.answers || {},
+    draftUploadedFiles: request.data?.uploadedFiles || [],
+    draftSavedAt: now,
+    draftRevision: Number(request.data?.revision || 0),
+  };
+
   await ref.set(updates, { merge: true });
   return { session: { ...session, ...updates }, serverNowMs: now };
 });

@@ -80,6 +80,10 @@ export interface StudentSession {
   submitTime?: number;
   violations: Violation[];
   answers: Record<string, any>; // Changed to any to support arrays for multi-select
+  draftAnswers?: Record<string, any>;
+  draftUploadedFiles?: { name: string; url: string; type: string; size: number; uploadedAt: number; }[];
+  draftSavedAt?: number;
+  draftRevision?: number;
   score?: number;
   feedback?: string;
   // Manual grading fields

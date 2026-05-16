@@ -14,6 +14,18 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
 import { Modal, useModal } from '../ui/Modal';
 
+type UploadedExamFile = { name: string; url: string; type: string; size: number; uploadedAt: number; };
+
+type LocalExamDraft = {
+  answers: Record<string, any>;
+  uploadedFiles: UploadedExamFile[];
+  savedAt: number;
+  revision: number;
+};
+
+const CLOUD_AUTOSAVE_DEBOUNCE_MS = 25000;
+const CLOUD_AUTOSAVE_MAX_WAIT_MS = 60000;
+
 export const ActiveExam = () => {
   const { auth, submitExamSession, startExamSession, logout } = useApp();
   const { theme, toggleTheme } = useTheme();
@@ -26,13 +38,18 @@ export const ActiveExam = () => {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const answersRef = useRef<Record<string, any>>({}); // Ref to track latest answers for async access
   const activeExamDataRef = useRef<{ exam: Exam, session: StudentSession } | null>(null);
-  const uploadedFilesRef = useRef<{ name: string; url: string; type: string; size: number; uploadedAt: number; }[]>([]);
+  const uploadedFilesRef = useRef<UploadedExamFile[]>([]);
   const frameUploadInFlightRef = useRef(false);
+  const autosaveTimerRef = useRef<number | null>(null);
+  const lastCloudSaveAtRef = useRef(0);
+  const draftRevisionRef = useRef(0);
+  const pendingCloudSaveRef = useRef(false);
+  const cloudSaveInFlightRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null); // Remaining seconds
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [isSplitView, setIsSplitView] = useState(false); // Split Screen State
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; url: string; type: string; size: number; uploadedAt: number; }[]>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedExamFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   
   // Modal state for beautiful dialogs
@@ -45,6 +62,114 @@ export const ActiveExam = () => {
   useEffect(() => {
     uploadedFilesRef.current = uploadedFiles;
   }, [uploadedFiles]);
+
+  const getDraftStorageKey = (studentId: string, examId: string) => `exam_draft_${studentId}_${examId}`;
+
+  const readLocalDraft = (studentId: string, examId: string): LocalExamDraft | null => {
+    try {
+      const raw = localStorage.getItem(getDraftStorageKey(studentId, examId));
+      if (!raw) return null;
+      const draft = JSON.parse(raw) as LocalExamDraft;
+      if (!draft || typeof draft.savedAt !== 'number') return null;
+      return {
+        answers: draft.answers || {},
+        uploadedFiles: draft.uploadedFiles || [],
+        savedAt: draft.savedAt,
+        revision: draft.revision || 0,
+      };
+    } catch (error) {
+      console.warn('Failed to read local exam draft:', error);
+      return null;
+    }
+  };
+
+  const persistLocalDraft = (studentId: string, examId: string, nextAnswers: Record<string, any>, nextFiles: UploadedExamFile[]) => {
+    try {
+      draftRevisionRef.current += 1;
+      const draft: LocalExamDraft = {
+        answers: nextAnswers,
+        uploadedFiles: nextFiles,
+        savedAt: Date.now(),
+        revision: draftRevisionRef.current,
+      };
+      localStorage.setItem(getDraftStorageKey(studentId, examId), JSON.stringify(draft));
+    } catch (error) {
+      console.warn('Failed to save local exam draft:', error);
+    }
+  };
+
+  const clearLocalDraft = (studentId: string, examId: string) => {
+    try {
+      localStorage.removeItem(getDraftStorageKey(studentId, examId));
+    } catch (error) {
+      console.warn('Failed to clear local exam draft:', error);
+    }
+  };
+
+  const saveDraftToCloud = async (reason = 'autosave') => {
+    const current = activeExamDataRef.current;
+    if (!current || current.session.status === 'SUBMITTED' || current.session.status === 'COMPLETED') return;
+    if (cloudSaveInFlightRef.current) {
+      pendingCloudSaveRef.current = true;
+      return;
+    }
+
+    cloudSaveInFlightRef.current = true;
+    pendingCloudSaveRef.current = false;
+    try {
+      const updatedSession = await api.sessions.saveDraft(
+        current.session.studentId,
+        current.exam.id,
+        answersRef.current,
+        uploadedFilesRef.current,
+        draftRevisionRef.current,
+      );
+      lastCloudSaveAtRef.current = Date.now();
+      if (updatedSession) {
+        setActiveExamData(prev => prev ? ({ ...prev, session: { ...prev.session, ...updatedSession } }) : null);
+      }
+      console.log(`Draft saved to cloud (${reason}).`);
+    } catch (error) {
+      pendingCloudSaveRef.current = true;
+      console.warn(`Draft cloud save failed (${reason}); local draft is still preserved.`, error);
+    } finally {
+      cloudSaveInFlightRef.current = false;
+      if (pendingCloudSaveRef.current) {
+        scheduleCloudDraftSave();
+      }
+    }
+  };
+
+  const scheduleCloudDraftSave = () => {
+    if (!activeExamDataRef.current) return;
+    pendingCloudSaveRef.current = true;
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+
+    const elapsed = Date.now() - lastCloudSaveAtRef.current;
+    const delay = elapsed >= CLOUD_AUTOSAVE_MAX_WAIT_MS ? 0 : CLOUD_AUTOSAVE_DEBOUNCE_MS;
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      saveDraftToCloud(delay === 0 ? 'max-wait' : 'debounced');
+    }, delay);
+  };
+
+  const persistDraft = (nextAnswers = answersRef.current, nextFiles = uploadedFilesRef.current, forceCloud = false) => {
+    const current = activeExamDataRef.current;
+    if (!current) return;
+    persistLocalDraft(current.session.studentId, current.exam.id, nextAnswers, nextFiles);
+    if (forceCloud) {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      saveDraftToCloud('forced');
+    } else {
+      scheduleCloudDraftSave();
+    }
+  };
+
   // --- 1. Initialization Logic ---
   useEffect(() => {
     const initializeExam = async () => {
@@ -116,13 +241,33 @@ export const ActiveExam = () => {
            return;
         }
 
+        const localDraft = readLocalDraft(freshSession.studentId, exam.id);
+        const serverDraftSavedAt = freshSession.draftSavedAt || 0;
+        const useLocalDraft = Boolean(localDraft && localDraft.savedAt > serverDraftSavedAt);
+        const restoredAnswers = useLocalDraft
+          ? localDraft!.answers
+          : (freshSession.draftAnswers || freshSession.answers || {});
+        const restoredFiles = useLocalDraft
+          ? localDraft!.uploadedFiles
+          : (freshSession.draftUploadedFiles || freshSession.uploadedFiles || []);
+
+        draftRevisionRef.current = Math.max(localDraft?.revision || 0, freshSession.draftRevision || 0);
+        lastCloudSaveAtRef.current = serverDraftSavedAt;
+
         // Set State
+        const initialExamData = { exam, session: freshSession };
+        activeExamDataRef.current = initialExamData;
         setTimeLeft(remaining);
-        setActiveExamData({ exam, session: freshSession });
-        setAnswers(freshSession.answers || {});
-        answersRef.current = freshSession.answers || {}; // Init ref
-        if (freshSession.uploadedFiles) setUploadedFiles(freshSession.uploadedFiles);
+        setActiveExamData(initialExamData);
+        setAnswers(restoredAnswers);
+        answersRef.current = restoredAnswers; // Init ref
+        uploadedFilesRef.current = restoredFiles;
+        setUploadedFiles(restoredFiles);
         setInitStatus('READY');
+
+        if (useLocalDraft) {
+          window.setTimeout(() => saveDraftToCloud('local-recovery'), 0);
+        }
 
       } catch (e) {
         console.error(e);
@@ -144,7 +289,7 @@ export const ActiveExam = () => {
     if (timeLeft <= 0) {
       // Time is up!
       if (activeExamData) {
-        handleSubmit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFiles, true);
+        handleSubmit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFilesRef.current, true);
       }
       return;
     }
@@ -162,6 +307,26 @@ export const ActiveExam = () => {
 
     return () => clearInterval(timerId);
   }, [initStatus, timeLeft]);
+
+  useEffect(() => {
+    if (initStatus !== 'READY' || !activeExamData) return;
+
+    const flushDraft = () => persistDraft(answersRef.current, uploadedFilesRef.current, true);
+    const handleBeforeUnload = () => {
+      persistLocalDraft(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFilesRef.current);
+    };
+    const handlePageHidden = () => {
+      if (document.hidden) flushDraft();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handlePageHidden);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handlePageHidden);
+    };
+  }, [initStatus, activeExamData?.session.studentId, activeExamData?.exam.id]);
 
   // --- 3. Security: Fullscreen & Tab Switch ---
   useEffect(() => {
@@ -511,30 +676,34 @@ export const ActiveExam = () => {
 
 
   // --- Handlers ---
+  const goToQuestion = (nextIndex: number) => {
+    persistDraft(answersRef.current, uploadedFilesRef.current, true);
+    setCurrentQuestionIndex(nextIndex);
+    setIsNavOpen(false);
+  };
+
   const handleAnswer = (val: any) => {
     if (!activeExamData) return;
     const qId = activeExamData.exam.questions[currentQuestionIndex].id;
     const qType = activeExamData.exam.questions[currentQuestionIndex].type;
 
     if (qType === QuestionType.MULTI_SELECT) {
-       const current = (answers[qId] as string[]) || [];
+       const current = (answersRef.current[qId] as string[]) || [];
        let newVal;
        if (current.includes(val)) {
          newVal = current.filter(v => v !== val);
        } else {
          newVal = [...current, val];
        }
-       setAnswers(prev => {
-         const newAnswers = {...prev, [qId]: newVal};
-         answersRef.current = newAnswers; // Sync ref
-         return newAnswers;
-       });
+       const newAnswers = {...answersRef.current, [qId]: newVal};
+       answersRef.current = newAnswers;
+       setAnswers(newAnswers);
+       persistDraft(newAnswers, uploadedFilesRef.current);
     } else {
-       setAnswers(prev => {
-         const newAnswers = {...prev, [qId]: val};
-         answersRef.current = newAnswers; // Sync ref
-         return newAnswers;
-       });
+       const newAnswers = {...answersRef.current, [qId]: val};
+       answersRef.current = newAnswers;
+       setAnswers(newAnswers);
+       persistDraft(newAnswers, uploadedFilesRef.current);
     }
   };
 
@@ -557,7 +726,10 @@ export const ActiveExam = () => {
   const doSubmit = async (stuId: string, exId: string, finalAnswers: Record<string, any>, finalFiles: any[]) => {
     setInitStatus('SUBMITTING');
     try {
+      persistLocalDraft(stuId, exId, finalAnswers, finalFiles);
+      await saveDraftToCloud('pre-submit');
       await submitExamSession(stuId, exId, finalAnswers, finalFiles);
+      clearLocalDraft(stuId, exId);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       navigate('/student/completed');
     } catch(e) {
@@ -611,7 +783,10 @@ export const ActiveExam = () => {
      if (!skipState) setInitStatus('SUBMITTING'); 
      
      try {
+       persistLocalDraft(stuId, exId, finalAnswers, finalFiles);
+       await saveDraftToCloud('pre-submit');
        await submitExamSession(stuId, exId, finalAnswers, finalFiles);
+       clearLocalDraft(stuId, exId);
        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
        navigate('/student/completed');
      } catch(e) {
@@ -672,7 +847,12 @@ export const ActiveExam = () => {
         uploadedAt: Date.now()
       };
       
-      setUploadedFiles(prev => [...prev, newFile]);
+      setUploadedFiles(prev => {
+        const nextFiles = [...prev, newFile];
+        uploadedFilesRef.current = nextFiles;
+        persistDraft(answersRef.current, nextFiles, true);
+        return nextFiles;
+      });
     } catch (error) {
       console.error("Upload failed:", error);
       showModal({
@@ -689,7 +869,12 @@ export const ActiveExam = () => {
 
   const removeFile = async (index: number) => {
     if (!confirm("Are you sure you want to remove this file?")) return;
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+    setUploadedFiles(prev => {
+      const nextFiles = prev.filter((_, i) => i !== index);
+      uploadedFilesRef.current = nextFiles;
+      persistDraft(answersRef.current, nextFiles, true);
+      return nextFiles;
+    });
   };
 
   // --- RENDER ---
@@ -961,14 +1146,14 @@ export const ActiveExam = () => {
                <Button 
                  variant="ghost" 
                  disabled={currentQuestionIndex === 0}
-                 onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
+                 onClick={() => goToQuestion(currentQuestionIndex - 1)}
                >
                  Previous
                </Button>
                
                {currentQuestionIndex < exam.questions.length - 1 ? (
                  <Button 
-                   onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
+                   onClick={() => goToQuestion(currentQuestionIndex + 1)}
                    className="gap-2"
                  >
                    Next Question <ArrowRight size={18} />
@@ -1016,8 +1201,7 @@ export const ActiveExam = () => {
                           <button
                             key={q.id}
                             onClick={() => {
-                              setCurrentQuestionIndex(idx);
-                              setIsNavOpen(false);
+                              goToQuestion(idx);
                             }}
                             className={`aspect-square rounded-lg flex items-center justify-center text-sm font-bold transition-all ${
                               isCurrent 

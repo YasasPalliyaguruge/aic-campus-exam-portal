@@ -304,6 +304,30 @@ export const api = {
         uploadedFiles: uploadedFiles || []
       });
     },
+    saveDraft: async (
+      studentId: string,
+      examId: string,
+      answers: Record<string, any>,
+      uploadedFiles?: any[],
+      revision = 0,
+    ) => {
+      if (isAnonymousStudent()) {
+        const result = await callFunction<
+          { studentId: string; examId: string; answers: Record<string, any>; uploadedFiles?: any[]; revision?: number },
+          { session: StudentSession; serverNowMs: number }
+        >('saveStudentDraft', { studentId, examId, answers, uploadedFiles: uploadedFiles || [], revision });
+        updateCachedServerTime(result.serverNowMs);
+        return result.session;
+      }
+
+      const sessionId = `${studentId}_${examId}`;
+      await updateDoc(doc(db, 'sessions', sessionId), {
+        draftAnswers: answers,
+        draftUploadedFiles: uploadedFiles || [],
+        draftSavedAt: getServerTime(),
+        draftRevision: revision,
+      });
+    },
     updateGrade: async (
       studentId: string,
       examId: string,
