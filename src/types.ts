@@ -42,6 +42,11 @@ export interface Exam {
   status: 'DRAFT' | 'PUBLISHED';
   scheduledStart?: string;
   scheduledEnd?: string;
+  scheduleTimeZone?: string;
+  scheduledStartLocal?: string;
+  scheduledEndLocal?: string;
+  scheduledStartMs?: number;
+  scheduledEndMs?: number;
   createdAt: string;
   // New fields for Assignment & Security
   assignedStudents: string[]; // List of User IDs allowed to take this exam
@@ -69,6 +74,7 @@ export interface StudentSession {
   id?: string;
   studentId: string;
   examId: string;
+  authUid?: string;
   status: 'WAITING' | 'IN_PROGRESS' | 'SUBMITTED' | 'COMPLETED';
   startTime?: number;
   submitTime?: number;
@@ -90,7 +96,7 @@ export interface StudentSession {
 
 export interface Violation {
   timestamp: number;
-  type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'NO_FACE_DETECTED';
+  type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'NO_FACE_DETECTED' | 'PASTE_ATTEMPT';
 }
 
 export interface AuthState {

@@ -11,6 +11,7 @@ import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
+import { buildScheduleFields, DEFAULT_EXAM_TIME_ZONE, EXAM_TIME_ZONES, toScheduleLocalInput } from '../../services/schedule';
 
 export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, onCancel: () => void, onSuccess: () => void }) => {
   const { addExam, programs, users, isLoading } = useApp();
@@ -29,11 +30,49 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
+  // Helper function to convert UTC ISO string to local datetime-local format
+  // datetime-local requires format: "YYYY-MM-DDTHH:mm" in LOCAL time
+  const utcToLocalDatetime = (utcIsoString: string | undefined): string => {
+    if (!utcIsoString) return '';
+    try {
+      const date = new Date(utcIsoString);
+      if (isNaN(date.getTime())) return utcIsoString; // Return as-is if invalid
+
+      // Format as local time for datetime-local input
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    } catch (e) {
+      return utcIsoString; // Return as-is if error
+    }
+  };
+
+  // Initialize exam data, converting UTC times to local display format
+  const initializeExamData = (examData: Exam | null | undefined): Partial<Exam> => {
+    if (!examData) {
+      return {
+        title: '', moduleId: '', durationMinutes: 60, questions: [], status: 'DRAFT',
+        assignedStudents: [], studentCredentials: {},
+        allowsFileUpload: false, allowedFileTypes: ['.pdf', '.docx', '.pptx'], maxFileCount: 1,
+        scheduleTimeZone: DEFAULT_EXAM_TIME_ZONE
+      };
+    }
+
+    // Convert UTC scheduled times to local format for display in form
+    return {
+      ...examData,
+      scheduleTimeZone: examData.scheduleTimeZone || DEFAULT_EXAM_TIME_ZONE,
+      scheduledStart: toScheduleLocalInput(examData, 'start') || utcToLocalDatetime(examData.scheduledStart),
+      scheduledEnd: toScheduleLocalInput(examData, 'end') || utcToLocalDatetime(examData.scheduledEnd)
+    };
+  };
+
   // Exam Data State
-  const [newExam, setNewExam] = useState<Partial<Exam>>(exam || {
-    title: '', moduleId: '', durationMinutes: 60, questions: [], status: 'DRAFT', assignedStudents: [], studentCredentials: {},
-    allowsFileUpload: false, allowedFileTypes: ['.pdf', '.docx', '.pptx'], maxFileCount: 1
-  });
+  const [newExam, setNewExam] = useState<Partial<Exam>>(initializeExamData(exam));
   
   const [createdExam, setCreatedExam] = useState<Exam | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -230,19 +269,19 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
       credentials[sid] = generateAccessCode();
     });
 
-    // CRITICAL: Convert scheduled times to UTC ISO strings
-    // datetime-local returns strings like "2025-12-11T21:30" without timezone
-    // We must convert to UTC to ensure consistent interpretation across all timezones
-    // The admin's local time is converted to UTC timestamp for storage
-    const convertToUTC = (localDateTimeString: string): string => {
-      if (!localDateTimeString) return '';
-      // Parse as local time and convert to UTC ISO string
-      const localDate = new Date(localDateTimeString);
-      return localDate.toISOString(); // Returns UTC time with 'Z' suffix
-    };
-    
-    const scheduledStartUTC = convertToUTC(newExam.scheduledStart || '');
-    const scheduledEndUTC = convertToUTC(newExam.scheduledEnd || '');
+    let scheduleFields;
+    try {
+      scheduleFields = buildScheduleFields(
+        newExam.scheduledStart || '',
+        newExam.scheduledEnd || '',
+        newExam.scheduleTimeZone || DEFAULT_EXAM_TIME_ZONE,
+      );
+    } catch (error: any) {
+      alert(error.message || 'Please enter a valid exam schedule.');
+      return;
+    }
+    const scheduledStartUTC = scheduleFields.scheduledStart;
+    const scheduledEndUTC = scheduleFields.scheduledEnd;
     
     console.log('📅 Schedule conversion (Admin local → UTC):');
     console.log(`   Start: ${newExam.scheduledStart} → ${scheduledStartUTC}`);
@@ -259,8 +298,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
       status: 'PUBLISHED' as const,
       assignedStudents: newExam.assignedStudents || [],
       studentCredentials: credentials,
-      scheduledStart: scheduledStartUTC, // Store as UTC ISO string
-      scheduledEnd: scheduledEndUTC,     // Store as UTC ISO string
+      ...scheduleFields,
       createdAt: newExam.createdAt || new Date().toISOString()
     };
 
@@ -646,6 +684,16 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
             <Card>
                <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-4 flex items-center gap-2"><Calendar size={20} className="text-violet-500"/> Schedule</h3>
                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Schedule Timezone</label>
+                    <Select
+                      value={newExam.scheduleTimeZone || DEFAULT_EXAM_TIME_ZONE}
+                      onChange={(e:any) => setNewExam({...newExam, scheduleTimeZone: e.target.value})}
+                    >
+                      {EXAM_TIME_ZONES.map(zone => <option key={zone} value={zone}>{zone}</option>)}
+                    </Select>
+                    <p className="text-xs text-gray-500 mt-1">The start and end times are interpreted in this timezone for every student.</p>
+                  </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Start Date & Time</label>
                     <Input 

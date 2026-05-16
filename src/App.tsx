@@ -79,7 +79,9 @@ const App = () => {
               // Firebase session is still active
               console.log('✅ Firebase session is valid, restoring app state');
               setAuth(parsedAuth);
-              await refreshData();
+              if (parsedAuth.user?.role !== UserRole.STUDENT) {
+                await refreshData();
+              }
             } else {
               // Firebase session expired, clear saved state
               console.log('⚠️ Firebase session expired, clearing saved state');
@@ -104,7 +106,7 @@ const App = () => {
 
   // Real-time session subscription
   useEffect(() => {
-    if (!auth.isAuthenticated) return;
+    if (!auth.isAuthenticated || auth.user?.role === UserRole.STUDENT) return;
 
     console.log('🔄 Setting up real-time session subscription...');
     const unsubscribe = api.sessions.subscribe((updatedSessions) => {
@@ -116,7 +118,7 @@ const App = () => {
       console.log('🔌 Cleaning up session subscription');
       unsubscribe();
     };
-  }, [auth.isAuthenticated]);
+  }, [auth.isAuthenticated, auth.user?.role]);
 
   // --- Actions ---
 
@@ -127,12 +129,21 @@ const App = () => {
       if (result && result.user) {
         const newAuthState = { user: result.user, isAuthenticated: true, activeExamId: result.activeExamId };
         setAuth(newAuthState);
+        if ((result as any).bootstrapData) {
+          const bootstrapData = (result as any).bootstrapData;
+          setUsers(bootstrapData.users || []);
+          setPrograms(bootstrapData.programs || []);
+          setExams(bootstrapData.exams || []);
+          setSessions(bootstrapData.sessions || []);
+        }
         
         // Save to localStorage for persistence
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(newAuthState));
         console.log('💾 Session saved to localStorage');
         
-        await refreshData(); // Sync data on login
+        if (result.user.role !== UserRole.STUDENT) {
+          await refreshData(); // Sync management data on staff login
+        }
       } else {
         throw new Error("Login failed: Invalid response from server");
       }
@@ -210,7 +221,7 @@ const App = () => {
   };
 
   const startExamSession = async (studentId: string, examId: string) => {
-    await api.sessions.start(studentId, examId);
+    return await api.sessions.start(studentId, examId);
     // refreshData is called inside ActiveExam's init logic
   };
 

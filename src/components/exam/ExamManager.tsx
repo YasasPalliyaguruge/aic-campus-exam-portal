@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ExamWizard } from './ExamWizard';
+import { formatExamSchedule } from '../../services/schedule';
 
 export const ExamManager = () => {
   const { exams, programs, deleteExam, users } = useApp();
@@ -120,7 +121,7 @@ export const ExamManager = () => {
                       {exam.status === 'PUBLISHED' ? <Badge color="green">Active</Badge> : <Badge color="amber">Draft</Badge>}
                     </td>
                     <td className="p-3 md:p-5 text-sm text-gray-500">
-                      {exam.scheduledStart ? new Date(exam.scheduledStart).toLocaleDateString() : '-'}
+                      {formatExamSchedule(exam, 'start')}
                     </td>
                     <td className="p-3 md:p-5 text-sm font-bold">{exam.assignedStudents.length}</td>
                     <td className="p-3 md:p-5 flex justify-end gap-2">

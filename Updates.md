@@ -1,59 +1,39 @@
 # Changelog
 
-## [2025-12-11] - Server-Side Time Implementation v2 (Security Critical)
+## [2026-05-17] - Secure Exam Timing And Paste Prevention
 
-### 🔒 Security Fix
-- **Server Time Synchronization v2**: Completely rewrote to use Firestore `serverTimestamp()` for TRUE server time:
-  - **Problem**: International students couldn't access exams due to timezone issues
-  - **Problem**: Students could manipulate device clocks to bypass exam schedules
-  - **Solution**: Fetch ACTUAL server time from Firebase servers using `serverTimestamp()`
-  - **Result**: Completely immune to client clock manipulation
-  
-### 🆕 New Files
-- `src/services/serverTime.ts` - Server time synchronization using Firestore serverTimestamp()
-- `SERVER_TIME_IMPLEMENTATION.md` - Detailed documentation of the security implementation
+### Security
 
-### ✏️ Modified Files
-- **`src/App.tsx`**: Added server time sync initialization on app load
-- **`src/services/api.ts`**: Re-syncs server time before EVERY schedule validation
-- **`src/components/exam/ActiveExam.tsx`**: Re-syncs server time for timer calculation
-- **`src/components/exam/StudentReview.tsx`**: Uses server time for edit availability
-- **`src/components/dashboard/ProctorView.tsx`**: Uses server time for elapsed displays
-- **`src/components/dashboard/Overview.tsx`**: Uses server time for live feed
-- **`firestore.rules`**: Added `_server_time_sync` collection for time sync documents
+- Added Firebase callable functions for student access validation, session start, submission, reopen, violation logging, latest submission lookup, and trusted time sync.
+- Moved student schedule and session write validation to Cloud Functions using server time.
+- Hardened Firestore rules so anonymous students cannot directly read global users, programs, or exams.
+- Restricted anonymous student session writes to webcam `currentFrame` updates only.
+- Added `authUid` binding to student sessions so anonymous users can read only their own validated session.
 
-### 🔧 Technical Details
-- Uses Firestore `serverTimestamp()` - assigned by Google's servers, not client
-- Re-syncs server time before every critical operation (login, timer init, schedule check)
-- Works correctly for students in ANY timezone
-- Works correctly even if student changes their device clock
-- No dependency on Firebase Realtime Database
+### Exam Timing
 
----
+- Added timezone-explicit scheduling with `scheduleTimeZone`.
+- Added canonical UTC schedule fields:
+  - `scheduledStartLocal`
+  - `scheduledEndLocal`
+  - `scheduledStartMs`
+  - `scheduledEndMs`
+- Kept `scheduledStart` and `scheduledEnd` UTC ISO strings for compatibility.
+- Added a trusted client timer baseline that uses server time plus `performance.now()` elapsed time.
 
-## [2025-12-10] - Rich Text Editor & UI Enhancements
+### Paste Prevention
 
-### ✨ New Features
-- **Advanced Rich Text Editor**: Replaced standard text areas with a feature-rich editor for both exam creation and student answers.
-  - **Formatting**: Bold, Italic, Underline, Strikethrough.
-  - **Tables**: Custom table insertion with row/column selection modal (1-20 rows, 1-10 cols) and high-contrast styling.
-  - **Lists**: Bullet and Numbered lists.
-  - **Other**: Blockquotes, Horizontal Lines, Links.
-- **Custom Modal Dialogs**: Replaced all native browser alerts (`window.alert`, `window.confirm`) with beautiful, animated React modals.
-  - **Types**: Info, Success, Warning, Error, Confirm, Delete.
-  - **Features**: Backdrop blur, keyboard dismissal, focus management.
-- **Improved Styling**: 
-  - **Questions**: Optimized font size for readability (`text-base/lg`), medium weight.
-  - **Tables**: High-contrast design (Dark Indigo headers, light gray cells, violet borders) for better accessibility.
+- Added paste, beforeinput paste, and text drop blocking to the shared rich text editor.
+- Enabled blocking only for student exam answer editors.
+- Added `PASTE_ATTEMPT` proctoring violations.
+- Staff authoring and grading fields still allow paste.
 
-### 🛠️ Fixes & Improvements
-- **Editor UX**: 
-  - Fixed single-click focus issue.
-  - Added active state highlighting for toolbar buttons (Bold, Italic, etc.).
-  - Moved editor modals (Table, Link) to center screen using Portals for better visibility.
-- **Proctoring**: Updated violation alerts to use custom modals.
-- **PDF Export**: Enhanced to render HTML content properly to avoid displaying raw tags.
+### Backend
 
-### 🗑️ Removed
-- **"Clear Formatting" Button**: Removed from editor toolbar to simplify UI.
-- **Native Alerts**: Removed usage of system dialogs in favor of custom UI.
+- Added `functions/` Firebase Functions v2 project.
+- Functions use the Admin SDK named database API for Firestore database `exam-portal`.
+
+### Verification
+
+- `npm run build`
+- `npm --prefix functions run build`

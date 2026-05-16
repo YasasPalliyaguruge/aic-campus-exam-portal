@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { CheckCircle, LogOut, BookOpen, Clock, Award, AlertTriangle, File, FileText, Calendar, Edit2 } from 'lucide-react';
 import { UserRole } from '../../types';
@@ -12,6 +12,27 @@ import { Badge } from '../ui/Badge';
 export const StudentReview = () => {
   const { auth, sessions, exams, logout } = useApp();
   const navigate = useNavigate();
+  const [reviewData, setReviewData] = useState<{ session: any; exam: any } | null>(null);
+  const [isReviewLoading, setIsReviewLoading] = useState(true);
+  const [isReopening, setIsReopening] = useState(false);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated || auth.user?.role !== UserRole.STUDENT) return;
+
+    let isMounted = true;
+    api.student.getLatestSubmission()
+      .then((result) => {
+        if (isMounted && result) setReviewData({ session: result.session, exam: result.exam });
+      })
+      .catch((error) => console.error('Failed to load student review:', error))
+      .finally(() => {
+        if (isMounted) setIsReviewLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [auth.isAuthenticated, auth.user?.role]);
 
   // Find the most recently submitted session for this student
   const studentSessions = sessions
@@ -21,12 +42,20 @@ export const StudentReview = () => {
     )
     .sort((a, b) => (b.submitTime || 0) - (a.submitTime || 0));
   
-  const session = studentSessions[0]; // Most recent submission
-  const exam = exams.find(e => e.id === session?.examId);
+  const session = reviewData?.session || studentSessions[0]; // Most recent submission
+  const exam = reviewData?.exam || exams.find(e => e.id === session?.examId);
 
   // Redirect if not authenticated as student
   if (!auth.isAuthenticated || auth.user?.role !== UserRole.STUDENT) {
     return <Navigate to="/" />;
+  }
+
+  if (isReviewLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 text-violet-600">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-violet-600" />
+      </div>
+    );
   }
 
   // If no session found, show message and logout option
@@ -71,8 +100,9 @@ export const StudentReview = () => {
     if (session.status !== 'SUBMITTED') return false;
     
     // Check if exam window is still open (using server time)
-    if (exam.scheduledEnd) {
-      const endTime = new Date(exam.scheduledEnd).getTime();
+    const scheduledEndTime = exam.scheduledEndMs || (exam.scheduledEnd ? new Date(exam.scheduledEnd).getTime() : null);
+    if (scheduledEndTime) {
+      const endTime = scheduledEndTime;
       if (serverNow > endTime) return false; // Exam window closed
     }
     
@@ -89,9 +119,10 @@ export const StudentReview = () => {
 
   // Calculate remaining time for display (using server time)
   const getRemainingTime = () => {
-    if (!session.startTime || !exam.scheduledEnd) return null;
+    const scheduledEndTime = exam.scheduledEndMs || (exam.scheduledEnd ? new Date(exam.scheduledEnd).getTime() : null);
+    if (!session.startTime || !scheduledEndTime) return null;
     
-    const endTime = new Date(exam.scheduledEnd).getTime();
+    const endTime = scheduledEndTime;
     const extraSeconds = (session.extraTimeMinutes || 0) * 60;
     const individualEnd = session.startTime + ((exam.durationMinutes * 60) + extraSeconds) * 1000;
     
@@ -102,8 +133,6 @@ export const StudentReview = () => {
   };
 
   const remainingMinutes = getRemainingTime();
-
-  const [isReopening, setIsReopening] = useState(false);
 
   const handleContinueEditing = async () => {
     if (!confirm('Are you sure you want to continue editing? You will be taken back to the exam.')) {

@@ -13,9 +13,11 @@ interface RichTextEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disablePaste?: boolean;
+  onBlockedPaste?: () => void;
 }
 
-export const RichTextEditor = ({ value, onChange, className = '' }: RichTextEditorProps) => {
+export const RichTextEditor = ({ value, onChange, className = '', disablePaste = false, onBlockedPaste }: RichTextEditorProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [showTableModal, setShowTableModal] = useState(false);
@@ -24,6 +26,7 @@ export const RichTextEditor = ({ value, onChange, className = '' }: RichTextEdit
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkUrl, setLinkUrl] = useState('https://');
   const savedSelectionRef = useRef<Range | null>(null);
+  const lastBlockedPasteRef = useRef(0);
   
   // Active formatting state
   const [activeFormats, setActiveFormats] = useState({
@@ -113,6 +116,29 @@ export const RichTextEditor = ({ value, onChange, className = '' }: RichTextEdit
       const html = editorRef.current.innerHTML;
       onChange(html === '<br>' ? '' : html);
     }
+  };
+
+  const blockPasteLikeInput = (event: React.SyntheticEvent) => {
+    if (!disablePaste) return;
+    event.preventDefault();
+    const now = Date.now();
+    if (now - lastBlockedPasteRef.current > 500) {
+      lastBlockedPasteRef.current = now;
+      onBlockedPaste?.();
+    }
+  };
+
+  const handleBeforeInput = (event: React.FormEvent<HTMLDivElement>) => {
+    const nativeEvent = event.nativeEvent as InputEvent;
+    if (disablePaste && nativeEvent.inputType?.startsWith('insertFromPaste')) {
+      blockPasteLikeInput(event);
+    }
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!disablePaste) return;
+    const hasText = event.dataTransfer.types.some(type => type === 'text/plain' || type === 'text/html');
+    if (hasText) blockPasteLikeInput(event);
   };
 
   // Insert HTML at cursor position
@@ -286,6 +312,9 @@ export const RichTextEditor = ({ value, onChange, className = '' }: RichTextEdit
         ref={editorRef}
         contentEditable
         onInput={handleInput}
+        onPaste={blockPasteLikeInput}
+        onBeforeInput={handleBeforeInput}
+        onDrop={handleDrop}
         onFocus={() => {
           setIsFocused(true);
           updateActiveFormats();

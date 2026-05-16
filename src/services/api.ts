@@ -1,429 +1,400 @@
-import { 
-  collection, getDocs, addDoc, doc, updateDoc, deleteDoc, 
-  query, where, getDoc, setDoc, onSnapshot 
+import {
+  collection, getDocs, doc, updateDoc, deleteDoc,
+  query, getDoc, setDoc, onSnapshot
 } from 'firebase/firestore';
 import { signInWithEmailAndPassword, signOut, signInAnonymously } from 'firebase/auth';
-import { db, auth } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, auth, functions } from '../firebase';
 import { User, Exam, StudentSession, Violation, UserRole, Program, Module } from '../types';
-import { getServerTime, formatServerTime, resyncServerTime, getServerTimeDiagnostics } from './serverTime';
+import { getServerTime, updateCachedServerTime } from './serverTime';
 
-// Helper to convert Firestore snapshot to typed array
 const convertSnapshot = <T>(snapshot: any) => {
-  return snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })) as T[];
+  return snapshot.docs.map((docSnap: any) => ({ id: docSnap.id, ...docSnap.data() })) as T[];
 };
+
+interface StudentExamContext {
+  user?: User;
+  exam: Exam;
+  session: StudentSession;
+  activeExamId: string;
+  serverNowMs: number;
+}
+
+interface StudentSubmissionContext {
+  exam: Exam;
+  session: StudentSession;
+  serverNowMs: number;
+}
+
+const callFunction = async <Request, Response>(name: string, data?: Request): Promise<Response> => {
+  const callable = httpsCallable<Request, Response>(functions, name);
+  const result = await callable((data || {}) as Request);
+  return result.data;
+};
+
+const isAnonymousStudent = () => Boolean(auth.currentUser?.isAnonymous);
 
 export const api = {
   auth: {
     login: async (role: string, idOrEmail: string, code?: string) => {
       const MAX_RETRIES = 3;
-      const RETRY_DELAY = 1000; // 1 second
-      
+      const RETRY_DELAY = 1000;
+
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          // Staff Login (Firebase Auth)
           if (role === 'STAFF') {
-              console.log(`🔐 Attempting login (attempt ${attempt}/${MAX_RETRIES})...`);
-              
-              const userCredential = await signInWithEmailAndPassword(auth, idOrEmail, code || ''); 
-              const userDocRef = doc(db, 'users', userCredential.user.uid);
-              
-              try {
-                const userDoc = await getDoc(userDocRef);
-                
-                if (!userDoc.exists()) {
-                    // Auto-create profile if missing (Self-healing)
-                    const newProfile: User = {
-                        id: userCredential.user.uid,
-                        name: "Admin User",
-                        email: idOrEmail,
-                        role: UserRole.ADMIN,
-                        programId: 'admin_prog'
-                    };
-                    await setDoc(userDocRef, newProfile);
-                    console.log('✅ Auto-created user profile in Firestore');
-                    return { user: newProfile, activeExamId: '' };
-                }
-                console.log('✅ Login successful!');
-                return { user: userDoc.data() as User, activeExamId: '' };
-              } catch (firestoreError: any) {
-                // Enhanced error messages for Firestore issues
-                console.error('Firestore error:', firestoreError);
-                if (firestoreError.code === 'unavailable' || firestoreError.message?.includes('offline')) {
-                  throw new Error('❌ Firestore Database is not enabled!\n\n📋 Please follow these steps:\n1. Go to Firebase Console\n2. Click "Firestore Database"\n3. Click "Create Database"\n4. Choose a location and click "Enable"\n\n📖 See FIRESTORE_SETUP.md for details');
-                } else if (firestoreError.code === 'permission-denied') {
-                  throw new Error('❌ Permission denied. Please update Firestore Security Rules.\n\n📖 See FIRESTORE_SETUP.md for instructions');
-                } else {
-                  throw new Error(`Firestore Error: ${firestoreError.message}`);
-                }
-              }
-          } 
-          // Student Login (Access Code)
-          else {
-              // Ensure we have an auth session (Anonymous) to read DB
-              if (!auth.currentUser) {
-                  console.log('👻 Signing in anonymously for Student access...');
-                  await signInAnonymously(auth);
+            const userCredential = await signInWithEmailAndPassword(auth, idOrEmail, code || '');
+            const userDocRef = doc(db, 'users', userCredential.user.uid);
+
+            try {
+              const userDoc = await getDoc(userDocRef);
+
+              if (!userDoc.exists()) {
+                const newProfile: User = {
+                  id: userCredential.user.uid,
+                  name: 'Admin User',
+                  email: idOrEmail,
+                  role: UserRole.ADMIN,
+                  programId: 'admin_prog'
+                };
+                await setDoc(userDocRef, newProfile);
+                return { user: newProfile, activeExamId: '' };
               }
 
-              const q = query(collection(db, 'users'), where('email', '==', idOrEmail), where('role', '==', 'STUDENT'));
-              const snapshot = await getDocs(q);
-              if (snapshot.empty) throw new Error("Student not found.");
-              
-              const student = snapshot.docs[0].data() as User;
-              
-              // Check Exam Access Code
-              const examQ = query(collection(db, 'exams'), where('status', '==', 'PUBLISHED'));
-              const examSnapshot = await getDocs(examQ);
-              
-              let activeExamId = '';
-              let matchedExam: Exam | null = null;
-
-              examSnapshot.forEach(docSnap => {
-                  const exam = docSnap.data() as Exam;
-                  exam.id = docSnap.id; // Ensure ID is set
-                  const storedCode = exam.studentCredentials?.[student.id]?.toUpperCase().trim();
-                  const inputCode = code?.toUpperCase().trim();
-                  if (storedCode && inputCode && storedCode === inputCode) {
-                      matchedExam = exam;
-                      activeExamId = exam.id;
-                  }
-              });
-
-              if (!matchedExam) throw new Error("Invalid Access Code");
-              
-              // ===== SCHEDULE VALIDATION (SERVER TIME - SECURE) =====
-              // CRITICAL SECURITY: Force re-sync server time before validation
-              // This fetches the ACTUAL time from Firebase servers using serverTimestamp()
-              // It is completely immune to client clock manipulation
-              console.log('🔐 Re-syncing server time for schedule validation...');
-              await resyncServerTime();
-              
-              const serverNow = getServerTime(); // ACTUAL server timestamp
-              const diagnostics = getServerTimeDiagnostics();
-              console.log('🕐 Server time for validation:', diagnostics.serverTimeUTC);
-              console.log('   Client time:', diagnostics.clientTimeUTC);
-              console.log('   Offset:', diagnostics.offsetSeconds, 'seconds');
-              
-              if (matchedExam.scheduledStart) {
-                  const startTime = new Date(matchedExam.scheduledStart).getTime();
-                  console.log('   Scheduled start:', new Date(startTime).toISOString());
-                  if (serverNow < startTime) {
-                      // Format for display in user's local timezone
-                      const formattedStart = formatServerTime(startTime);
-                      throw new Error(`❌ Exam hasn't started yet.\n\nThe exam will be available on:\n📅 ${formattedStart}\n\nPlease try again at the scheduled time.`);
-                  }
+              return { user: userDoc.data() as User, activeExamId: '' };
+            } catch (firestoreError: any) {
+              if (firestoreError.code === 'unavailable' || firestoreError.message?.includes('offline')) {
+                throw new Error('Firestore Database is not enabled. Please enable Firestore in Firebase Console.');
               }
-              
-              if (matchedExam.scheduledEnd) {
-                  const endTime = new Date(matchedExam.scheduledEnd).getTime();
-                  console.log('   Scheduled end:', new Date(endTime).toISOString());
-                  if (serverNow > endTime) {
-                      // Format for display in user's local timezone
-                      const formattedEnd = formatServerTime(endTime);
-                      throw new Error(`❌ Exam has ended.\n\nThis exam closed on:\n📅 ${formattedEnd}\n\nPlease contact your instructor if you need assistance.`);
-                  }
+              if (firestoreError.code === 'permission-denied') {
+                throw new Error('Permission denied. Please update Firestore Security Rules.');
               }
-              console.log('✅ Schedule validation passed - exam is currently accessible');
-              // ===== END SCHEDULE VALIDATION =====
-              
-              // Initialize session if it doesn't exist
-              await api.sessions.init(student.id, activeExamId);
-              
-              return { user: student, activeExamId };
+              throw new Error(`Firestore Error: ${firestoreError.message}`);
+            }
           }
+
+          if (!auth.currentUser) {
+            await signInAnonymously(auth);
+          }
+
+          const result = await callFunction<{ email: string; accessCode: string }, StudentExamContext>('validateStudentAccess', {
+            email: idOrEmail,
+            accessCode: code || '',
+          });
+
+          updateCachedServerTime(result.serverNowMs);
+
+          return {
+            user: result.user,
+            activeExamId: result.activeExamId,
+            bootstrapData: {
+              users: result.user ? [result.user] : [],
+              programs: [],
+              exams: [result.exam],
+              sessions: [result.session],
+            },
+          };
         } catch (error: any) {
-          // Re-throw with original message if already formatted
-          if (error.message?.startsWith('❌')) {
-            throw error;
-          }
-          
-          // Handle Firebase Auth errors with retry logic
-          const shouldRetry = 
+          const shouldRetry =
             error.code === 'auth/network-request-failed' ||
             error.code === 'auth/too-many-requests' ||
             error.message?.includes('503') ||
             error.message?.includes('visibility-check-was-unavailable');
-          
+
           if (shouldRetry && attempt < MAX_RETRIES) {
-            console.warn(`⚠️ Attempt ${attempt} failed, retrying in ${RETRY_DELAY * attempt}ms...`);
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
-            continue; // Retry
+            continue;
           }
-          
-          // Format specific error messages
+
           if (error.code === 'auth/user-not-found') {
-            throw new Error('❌ User not found. Please check your email address.');
-          } else if (error.code === 'auth/wrong-password') {
-            throw new Error('❌ Incorrect password. Please try again.');
-          } else if (error.code === 'auth/invalid-email') {
-            throw new Error('❌ Invalid email address format.');
-          } else if (error.code === 'auth/network-request-failed') {
-            throw new Error('❌ Network error. Please check your internet connection and try again.');
-          } else if (error.code === 'auth/too-many-requests') {
-            throw new Error('❌ Too many failed login attempts. Please wait a few minutes and try again.');
-          } else if (error.message?.includes('visibility-check-was-unavailable') || error.message?.includes('503')) {
-            throw new Error('❌ Firebase Authentication service is temporarily unavailable.\n\n🔄 Please try these solutions:\n\n1. Disable ad blockers or browser extensions\n2. Try in an incognito/private window\n3. Check your Firebase Console:\n   - Authentication > Settings > Authorized domains\n   - Make sure "localhost" is listed\n4. Wait a few minutes (Firebase may be experiencing issues)\n5. Check Firebase Status: status.firebase.google.com\n\n💡 If using an ad blocker, whitelist:\n   - *.googleapis.com\n   - *.google.com\n   - localhost');
-          } else if (error.code === 'auth/popup-blocked') {
-            throw new Error('❌ Popup was blocked. Please allow popups for this site.');
-          } else if (error.code === 'auth/invalid-credential') {
-            throw new Error('❌ Invalid credentials. Please check your email and password.');
+            throw new Error('User not found. Please check your email address.');
           }
-          
-          // Generic error
-          throw new Error(`Login failed: ${error.message || 'Unknown error'}`);
+          if (error.code === 'auth/wrong-password') {
+            throw new Error('Incorrect password. Please try again.');
+          }
+          if (error.code === 'auth/invalid-email') {
+            throw new Error('Invalid email address format.');
+          }
+          if (error.code === 'auth/network-request-failed') {
+            throw new Error('Network error. Please check your internet connection and try again.');
+          }
+          if (error.code === 'auth/too-many-requests') {
+            throw new Error('Too many failed login attempts. Please wait a few minutes and try again.');
+          }
+          if (error.code === 'auth/invalid-credential') {
+            throw new Error('Invalid credentials. Please check your email and password.');
+          }
+
+          throw new Error(error.message || 'Login failed. Please try again.');
         }
       }
-      
-      // If all retries failed
-      throw new Error('❌ Login failed after multiple attempts. Please try again later.');
+
+      throw new Error('Login failed after multiple attempts. Please try again later.');
     },
     register: async (email: string, pass: string, name: string, role: UserRole) => {
-        const { createUserWithEmailAndPassword } = await import("firebase/auth");
-        const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-        const newUser: User = {
-            id: userCredential.user.uid,
-            name,
-            email,
-            role,
-            studentId: role === UserRole.STUDENT ? `ST_${Date.now()}` : undefined,
-            programId: 'prog_001' // Default program
-        };
-        await setDoc(doc(db, 'users', newUser.id), newUser);
-        return newUser;
+      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+      const newUser: User = {
+        id: userCredential.user.uid,
+        name,
+        email,
+        role,
+        studentId: role === UserRole.STUDENT ? `ST_${Date.now()}` : undefined,
+        programId: 'prog_001'
+      };
+      await setDoc(doc(db, 'users', newUser.id), newUser);
+      return newUser;
     },
     logout: async () => {
-        await signOut(auth);
+      await signOut(auth);
     }
   },
 
   data: {
     fetchAll: async () => {
-        const [usersSnap, programsSnap, examsSnap, sessionsSnap] = await Promise.all([
-            getDocs(collection(db, 'users')),
-            getDocs(collection(db, 'programs')),
-            getDocs(collection(db, 'exams')),
-            getDocs(collection(db, 'sessions'))
-        ]);
+      const [usersSnap, programsSnap, examsSnap, sessionsSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'programs')),
+        getDocs(collection(db, 'exams')),
+        getDocs(collection(db, 'sessions'))
+      ]);
 
-        return {
-            users: convertSnapshot<User>(usersSnap),
-            programs: convertSnapshot<Program>(programsSnap),
-            exams: convertSnapshot<Exam>(examsSnap),
-            sessions: convertSnapshot<StudentSession>(sessionsSnap)
-        };
+      return {
+        users: convertSnapshot<User>(usersSnap),
+        programs: convertSnapshot<Program>(programsSnap),
+        exams: convertSnapshot<Exam>(examsSnap),
+        sessions: convertSnapshot<StudentSession>(sessionsSnap)
+      };
+    }
+  },
+
+  student: {
+    getActiveExamContext: async (examId?: string) => {
+      const result = await callFunction<{ examId?: string }, StudentExamContext>('getStudentExamContext', { examId });
+      updateCachedServerTime(result.serverNowMs);
+      return result;
+    },
+    getLatestSubmission: async () => {
+      const result = await callFunction<void, StudentSubmissionContext | null>('getLatestStudentSubmission');
+      if (result?.serverNowMs) updateCachedServerTime(result.serverNowMs);
+      return result;
+    },
+    getTrustedTime: async () => {
+      const result = await callFunction<void, { serverNowMs: number }>('getTrustedTime');
+      updateCachedServerTime(result.serverNowMs);
+      return result.serverNowMs;
     }
   },
 
   exams: {
     create: async (exam: Exam) => {
-        await setDoc(doc(db, 'exams', exam.id), exam);
+      await setDoc(doc(db, 'exams', exam.id), exam);
     },
     delete: async (id: string) => {
-        await deleteDoc(doc(db, 'exams', id));
+      await deleteDoc(doc(db, 'exams', id));
     }
   },
 
   programs: {
     create: async (program: Program) => {
-        await setDoc(doc(db, 'programs', program.id), program);
+      await setDoc(doc(db, 'programs', program.id), program);
     },
     addModule: async (programId: string, module: Module) => {
-        const programRef = doc(db, 'programs', programId);
-        const programSnap = await getDoc(programRef);
-        if (programSnap.exists()) {
-            const program = programSnap.data() as Program;
-            const updatedModules = [...program.modules, module];
-            await updateDoc(programRef, { modules: updatedModules });
-        }
+      const programRef = doc(db, 'programs', programId);
+      const programSnap = await getDoc(programRef);
+      if (programSnap.exists()) {
+        const program = programSnap.data() as Program;
+        await updateDoc(programRef, { modules: [...program.modules, module] });
+      }
     },
     delete: async (id: string) => {
-        await deleteDoc(doc(db, 'programs', id));
+      await deleteDoc(doc(db, 'programs', id));
     },
     deleteModule: async (programId: string, moduleId: string) => {
-        const programRef = doc(db, 'programs', programId);
-        const programSnap = await getDoc(programRef);
-        if (programSnap.exists()) {
-            const program = programSnap.data() as Program;
-            const updatedModules = program.modules.filter(m => m.id !== moduleId);
-            await updateDoc(programRef, { modules: updatedModules });
-        }
+      const programRef = doc(db, 'programs', programId);
+      const programSnap = await getDoc(programRef);
+      if (programSnap.exists()) {
+        const program = programSnap.data() as Program;
+        await updateDoc(programRef, { modules: program.modules.filter(m => m.id !== moduleId) });
+      }
     }
   },
 
   students: {
     enroll: async (student: User) => {
-        await setDoc(doc(db, 'users', student.id), student);
+      await setDoc(doc(db, 'users', student.id), student);
     },
     delete: async (id: string) => {
-        await deleteDoc(doc(db, 'users', id));
+      await deleteDoc(doc(db, 'users', id));
     }
   },
 
   sessions: {
     init: async (studentId: string, examId: string) => {
-        const sessionId = `${studentId}_${examId}`;
-        const sessionRef = doc(db, 'sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        
-        if (!sessionSnap.exists()) {
-            const newSession: StudentSession = {
-                studentId,
-                examId,
-                status: 'WAITING',
-                answers: {},
-                violations: [],
-                warnings: [] // Initialize warnings array for proctor messages
-            };
-            await setDoc(sessionRef, newSession);
-        }
+      const sessionId = `${studentId}_${examId}`;
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+
+      if (!sessionSnap.exists()) {
+        const newSession: StudentSession = {
+          studentId,
+          examId,
+          status: 'WAITING',
+          answers: {},
+          violations: [],
+          warnings: []
+        };
+        await setDoc(sessionRef, newSession);
+      }
     },
     delete: async (sessionId: string) => {
-        await deleteDoc(doc(db, 'sessions', sessionId));
+      await deleteDoc(doc(db, 'sessions', sessionId));
     },
     start: async (studentId: string, examId: string) => {
-        const sessionId = `${studentId}_${examId}`;
-        await updateDoc(doc(db, 'sessions', sessionId), {
-            status: 'IN_PROGRESS',
-            startTime: getServerTime() // Use server time for accurate timer calculation
-        });
+      if (isAnonymousStudent()) {
+        const result = await callFunction<{ studentId: string; examId: string }, StudentExamContext>('startStudentSession', { studentId, examId });
+        updateCachedServerTime(result.serverNowMs);
+        return result.session;
+      }
+
+      const sessionId = `${studentId}_${examId}`;
+      await updateDoc(doc(db, 'sessions', sessionId), {
+        status: 'IN_PROGRESS',
+        startTime: getServerTime()
+      });
     },
     submit: async (studentId: string, examId: string, answers: Record<string, any>, uploadedFiles?: any[]) => {
-        const sessionId = `${studentId}_${examId}`;
-        
-        // Update session with answers only - no auto grading
-        await updateDoc(doc(db, 'sessions', sessionId), {
-            status: 'SUBMITTED',
-            submitTime: getServerTime(), // Use server time
-            answers,
-            uploadedFiles: uploadedFiles || []
-        });
-        
-        console.log(`✅ Exam submitted. Manual grading required.`);
+      if (isAnonymousStudent()) {
+        const result = await callFunction<
+          { studentId: string; examId: string; answers: Record<string, any>; uploadedFiles?: any[] },
+          { session: StudentSession; serverNowMs: number }
+        >('submitStudentSession', { studentId, examId, answers, uploadedFiles: uploadedFiles || [] });
+        updateCachedServerTime(result.serverNowMs);
+        return result.session;
+      }
+
+      const sessionId = `${studentId}_${examId}`;
+      await updateDoc(doc(db, 'sessions', sessionId), {
+        status: 'SUBMITTED',
+        submitTime: getServerTime(),
+        answers,
+        uploadedFiles: uploadedFiles || []
+      });
     },
     updateGrade: async (
-        studentId: string, 
-        examId: string, 
-        questionId: string,
-        questionScore: number,
-        feedback?: string
+      studentId: string,
+      examId: string,
+      questionId: string,
+      questionScore: number,
+      feedback?: string
     ) => {
-        const sessionId = `${studentId}_${examId}`;
-        const sessionRef = doc(db, 'sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        
-        if (!sessionSnap.exists()) {
-            throw new Error('Session not found');
-        }
-        
-        const session = sessionSnap.data() as StudentSession;
-        const questionScores = session.questionScores || {};
-        const graderNotes = session.graderNotes || {};
+      const sessionId = `${studentId}_${examId}`;
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
 
-        // Update question score
-        questionScores[questionId] = questionScore;
-        
-        // Update feedback if provided
-        if (feedback) {
-            graderNotes[questionId] = feedback;
-        }
-        
-        // Recalculate total score
-        const totalScore = Object.values(questionScores).reduce((sum, score) => sum + score, 0);
-        
-        // Update session
-        await updateDoc(sessionRef, {
-            questionScores,
-            graderNotes,
-            score: totalScore,
-            gradedAt: getServerTime() // Use server time
-        });
-        
-        console.log(`✅ Manual grade updated: ${questionScore} pts for question ${questionId}. New Total: ${totalScore}`);
+      if (!sessionSnap.exists()) {
+        throw new Error('Session not found');
+      }
+
+      const session = sessionSnap.data() as StudentSession;
+      const questionScores = session.questionScores || {};
+      const graderNotes = session.graderNotes || {};
+
+      questionScores[questionId] = questionScore;
+      if (feedback) graderNotes[questionId] = feedback;
+
+      const totalScore = Object.values(questionScores).reduce((sum, score) => sum + score, 0);
+
+      await updateDoc(sessionRef, {
+        questionScores,
+        graderNotes,
+        score: totalScore,
+        gradedAt: getServerTime()
+      });
     },
     logViolation: async (studentId: string, examId: string, violation: Violation) => {
-        const sessionId = `${studentId}_${examId}`;
-        const sessionRef = doc(db, 'sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        if (sessionSnap.exists()) {
-            const session = sessionSnap.data() as StudentSession;
-            await updateDoc(sessionRef, {
-                violations: [...session.violations, violation]
-            });
-        }
+      if (isAnonymousStudent()) {
+        const result = await callFunction<
+          { studentId: string; examId: string; violation: Violation },
+          { session: StudentSession; serverNowMs: number }
+        >('logStudentViolation', { studentId, examId, violation });
+        updateCachedServerTime(result.serverNowMs);
+        return result.session;
+      }
+
+      const sessionId = `${studentId}_${examId}`;
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      if (sessionSnap.exists()) {
+        const session = sessionSnap.data() as StudentSession;
+        await updateDoc(sessionRef, {
+          violations: [...(session.violations || []), violation]
+        });
+      }
     },
     sendWarning: async (sessionId: string, message: string) => {
-        const sessionRef = doc(db, 'sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        if (sessionSnap.exists()) {
-            const session = sessionSnap.data() as StudentSession;
-            await updateDoc(sessionRef, {
-                warnings: [...(session.warnings || []), message]
-            });
-        }
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      if (sessionSnap.exists()) {
+        const session = sessionSnap.data() as StudentSession;
+        await updateDoc(sessionRef, {
+          warnings: [...(session.warnings || []), message]
+        });
+      }
     },
     updateFrame: async (studentId: string, examId: string, frameData: string) => {
-        const sessionId = `${studentId}_${examId}`;
-        const sessionRef = doc(db, 'sessions', sessionId);
-        try {
-            await updateDoc(sessionRef, { currentFrame: frameData });
-        } catch (error) {
-            console.error('Failed to update frame:', error);
-            throw error;
-        }
+      const sessionId = `${studentId}_${examId}`;
+      const sessionRef = doc(db, 'sessions', sessionId);
+      await updateDoc(sessionRef, { currentFrame: frameData });
     },
     terminate: async (sessionId: string) => {
-        const sessionRef = doc(db, 'sessions', sessionId);
-        await updateDoc(sessionRef, {
-            status: 'SUBMITTED',
-            submitTime: getServerTime(), // Use server time
-            score: 0, // Disqualified or ended without submission
-            feedback: 'Session terminated by proctor.',
-            isTerminated: true // Mark as terminated - cannot be reopened
-        });
+      const sessionRef = doc(db, 'sessions', sessionId);
+      await updateDoc(sessionRef, {
+        status: 'SUBMITTED',
+        submitTime: getServerTime(),
+        score: 0,
+        feedback: 'Session terminated by proctor.',
+        isTerminated: true
+      });
     },
     extendTime: async (sessionId: string, extraMinutes: number) => {
-        const sessionRef = doc(db, 'sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        if (sessionSnap.exists()) {
-            const session = sessionSnap.data() as StudentSession;
-            const currentExtra = session.extraTimeMinutes || 0;
-            await updateDoc(sessionRef, {
-                extraTimeMinutes: currentExtra + extraMinutes
-            });
-            console.log(`✅ Extended time by ${extraMinutes} minutes. Total extra: ${currentExtra + extraMinutes} minutes`);
-        }
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      if (sessionSnap.exists()) {
+        const session = sessionSnap.data() as StudentSession;
+        const currentExtra = session.extraTimeMinutes || 0;
+        await updateDoc(sessionRef, {
+          extraTimeMinutes: currentExtra + extraMinutes
+        });
+      }
     },
     reopenSession: async (studentId: string, examId: string) => {
-        // Allow student to continue editing if they accidentally submitted early
-        const sessionId = `${studentId}_${examId}`;
-        const sessionRef = doc(db, 'sessions', sessionId);
-        const sessionSnap = await getDoc(sessionRef);
-        
-        if (sessionSnap.exists()) {
-            const session = sessionSnap.data() as StudentSession;
-            
-            // Check if session was terminated by admin
-            if (session.isTerminated) {
-                throw new Error('Cannot reopen: Session was terminated by administrator');
-            }
-            
-            // Only allow reopening if status is SUBMITTED (not COMPLETED/graded)
-            if (session.status !== 'SUBMITTED') {
-                throw new Error('Cannot reopen: Session is not in SUBMITTED status');
-            }
-            
-            await updateDoc(sessionRef, {
-                status: 'IN_PROGRESS',
-                submitTime: null  // Clear submit time
-            });
-            console.log('🔓 Session reopened for editing');
-        }
+      if (isAnonymousStudent()) {
+        const result = await callFunction<{ studentId: string; examId: string }, StudentExamContext>('reopenStudentSession', { studentId, examId });
+        updateCachedServerTime(result.serverNowMs);
+        return result.session;
+      }
+
+      const sessionId = `${studentId}_${examId}`;
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+
+      if (sessionSnap.exists()) {
+        const session = sessionSnap.data() as StudentSession;
+        if (session.isTerminated) throw new Error('Cannot reopen: Session was terminated by administrator');
+        if (session.status !== 'SUBMITTED') throw new Error('Cannot reopen: Session is not in SUBMITTED status');
+
+        await updateDoc(sessionRef, {
+          status: 'IN_PROGRESS',
+          submitTime: null
+        });
+      }
     },
     subscribe: (callback: (sessions: StudentSession[]) => void) => {
-        const q = query(collection(db, 'sessions'));
-        return onSnapshot(q, (snapshot) => {
-            callback(convertSnapshot<StudentSession>(snapshot));
-        });
+      const q = query(collection(db, 'sessions'));
+      return onSnapshot(q, (snapshot) => {
+        callback(convertSnapshot<StudentSession>(snapshot));
+      });
     }
   }
 };
