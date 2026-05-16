@@ -33,6 +33,10 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    match /accessCodes/{accessCodeId} {
+      allow read, write: if isStaff();
+    }
+
     match /sessions/{sessionId} {
       allow read: if isStaff() || ownsSession();
       allow create: if isStaff();

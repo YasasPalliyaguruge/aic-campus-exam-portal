@@ -1,6 +1,6 @@
 import {
   collection, getDocs, doc, updateDoc, deleteDoc,
-  query, getDoc, setDoc, onSnapshot
+  query, getDoc, setDoc, onSnapshot, writeBatch, where
 } from 'firebase/firestore';
 import { signInWithEmailAndPassword, signOut, signInAnonymously } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
@@ -188,10 +188,33 @@ export const api = {
 
   exams: {
     create: async (exam: Exam) => {
-      await setDoc(doc(db, 'exams', exam.id), exam);
+      const batch = writeBatch(db);
+      const examRef = doc(db, 'exams', exam.id);
+      batch.set(examRef, exam);
+
+      const existingCodes = await getDocs(query(collection(db, 'accessCodes'), where('examId', '==', exam.id)));
+      existingCodes.docs.forEach((codeDoc) => batch.delete(codeDoc.ref));
+
+      Object.entries(exam.studentCredentials || {}).forEach(([studentId, code]) => {
+        const normalizedCode = String(code || '').trim().toUpperCase();
+        if (!normalizedCode) return;
+        batch.set(doc(db, 'accessCodes', `${exam.id}_${studentId}`), {
+          code: normalizedCode,
+          examId: exam.id,
+          studentId,
+          examStatus: exam.status,
+          updatedAt: Date.now(),
+        });
+      });
+
+      await batch.commit();
     },
     delete: async (id: string) => {
-      await deleteDoc(doc(db, 'exams', id));
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'exams', id));
+      const existingCodes = await getDocs(query(collection(db, 'accessCodes'), where('examId', '==', id)));
+      existingCodes.docs.forEach((codeDoc) => batch.delete(codeDoc.ref));
+      await batch.commit();
     }
   },
 
@@ -346,6 +369,12 @@ export const api = {
       const sessionId = `${studentId}_${examId}`;
       const sessionRef = doc(db, 'sessions', sessionId);
       await updateDoc(sessionRef, { currentFrame: frameData });
+    },
+    subscribeToSession: (studentId: string, examId: string, callback: (session: StudentSession | null) => void) => {
+      const sessionId = `${studentId}_${examId}`;
+      return onSnapshot(doc(db, 'sessions', sessionId), (sessionSnap) => {
+        callback(sessionSnap.exists() ? { id: sessionSnap.id, ...sessionSnap.data() } as StudentSession : null);
+      });
     },
     terminate: async (sessionId: string) => {
       const sessionRef = doc(db, 'sessions', sessionId);

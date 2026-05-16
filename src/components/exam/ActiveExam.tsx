@@ -25,6 +25,9 @@ export const ActiveExam = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const answersRef = useRef<Record<string, any>>({}); // Ref to track latest answers for async access
+  const activeExamDataRef = useRef<{ exam: Exam, session: StudentSession } | null>(null);
+  const uploadedFilesRef = useRef<{ name: string; url: string; type: string; size: number; uploadedAt: number; }[]>([]);
+  const frameUploadInFlightRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null); // Remaining seconds
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -34,6 +37,14 @@ export const ActiveExam = () => {
   
   // Modal state for beautiful dialogs
   const { modalState, showModal, hideModal } = useModal();
+
+  useEffect(() => {
+    activeExamDataRef.current = activeExamData;
+  }, [activeExamData]);
+
+  useEffect(() => {
+    uploadedFilesRef.current = uploadedFiles;
+  }, [uploadedFiles]);
   // --- 1. Initialization Logic ---
   useEffect(() => {
     const initializeExam = async () => {
@@ -231,6 +242,7 @@ export const ActiveExam = () => {
             
             streamInterval = setInterval(async () => {
               try {
+                if (frameUploadInFlightRef.current) return;
                 if (!videoRef.current || !activeExamData) {
                   console.warn('⚠️ Video ref or exam data missing');
                   return;
@@ -271,6 +283,7 @@ export const ActiveExam = () => {
                 
                 console.log('📤 Uploading frame... (size:', Math.round(frameData.length / 1024), 'KB)');
                 
+                frameUploadInFlightRef.current = true;
                 await api.sessions.updateFrame(
                   activeExamData.session.studentId, 
                   activeExamData.exam.id, 
@@ -282,6 +295,7 @@ export const ActiveExam = () => {
               } catch (error) {
                 console.error('❌ Frame capture/upload failed:', error);
               }
+                frameUploadInFlightRef.current = false;
             }, 5000); // Every 5 seconds
             
           }, 2000); // Wait 2 seconds before starting
@@ -317,7 +331,7 @@ export const ActiveExam = () => {
   useEffect(() => {
     if (initStatus !== 'READY' || !activeExamData) return;
 
-    // Poll for warnings and check schedule every 5 seconds
+    // Light trusted refresh for schedule changes and server-time resync. Session changes arrive via direct listener below.
     const warningInterval = setInterval(async () => {
       try {
         // Fetch the latest trusted student-scoped session and exam data
@@ -333,7 +347,7 @@ export const ActiveExam = () => {
             // Exam window has closed - auto-submit
             console.log("⏰ Exam window has closed (server time). Auto-submitting...");
             try {
-              await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFiles);
+              await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFilesRef.current);
             } catch (err) {
               console.error("Failed to auto-submit:", err);
             }
@@ -358,7 +372,7 @@ export const ActiveExam = () => {
                   console.log("⚠️ Session terminated externally. Saving final answers...");
                   try {
                     // Use the REF to get the latest answers since state might be stale in this closure
-                    await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFiles);
+                    await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFilesRef.current);
                   } catch (err) {
                     console.error("Failed to save final answers on termination:", err);
                   }
@@ -417,10 +431,83 @@ export const ActiveExam = () => {
       } catch (e) {
         // silent fail
       }
-    }, 5000);
+    }, 60000);
 
     return () => clearInterval(warningInterval);
   }, [initStatus, activeExamData]);
+
+  useEffect(() => {
+    if (initStatus !== 'READY' || !activeExamData) return;
+
+    const studentId = activeExamData.session.studentId;
+    const examId = activeExamData.exam.id;
+
+    return api.sessions.subscribeToSession(studentId, examId, async (currentSession) => {
+      if (!currentSession) return;
+
+      const previousSession = activeExamDataRef.current?.session || activeExamData.session;
+
+      if (currentSession.status === 'SUBMITTED' || currentSession.status === 'COMPLETED') {
+        if (previousSession.status !== 'SUBMITTED' && previousSession.status !== 'COMPLETED') {
+          try {
+            await api.sessions.submit(studentId, examId, answersRef.current, uploadedFilesRef.current);
+          } catch (err) {
+            console.error("Failed to save final answers on termination:", err);
+          }
+        }
+
+        showModal({
+          title: 'Session Ended',
+          message: 'Your exam has been submitted or terminated by the proctor.',
+          type: 'info',
+          showCancel: false,
+          confirmText: 'OK',
+          onConfirm: () => navigate('/student/completed'),
+        });
+        return;
+      }
+
+      const currentExtra = currentSession.extraTimeMinutes || 0;
+      const previousExtra = previousSession.extraTimeMinutes || 0;
+      if (currentExtra > previousExtra) {
+        const addedMinutes = currentExtra - previousExtra;
+        showModal({
+          title: 'Extra Time Granted!',
+          message: `Great news! You have been granted ${addedMinutes} extra minute${addedMinutes > 1 ? 's' : ''} for this exam.`,
+          type: 'success',
+          showCancel: false,
+          confirmText: 'Continue',
+        });
+
+        setTimeLeft(prev => prev === null ? null : prev + (addedMinutes * 60));
+      }
+
+      if (currentSession.warnings && currentSession.warnings.length > (previousSession.warnings?.length || 0)) {
+        const newWarnings = currentSession.warnings.slice(previousSession.warnings?.length || 0);
+        newWarnings.forEach(w => {
+          showModal({
+            title: 'Proctor Warning',
+            message: w,
+            type: 'warning',
+            showCancel: false,
+            confirmText: 'I Understand',
+          });
+        });
+      }
+
+      const shouldSyncSession =
+        currentSession.status !== previousSession.status ||
+        currentSession.submitTime !== previousSession.submitTime ||
+        currentSession.extraTimeMinutes !== previousSession.extraTimeMinutes ||
+        currentSession.isTerminated !== previousSession.isTerminated ||
+        (currentSession.warnings?.length || 0) !== (previousSession.warnings?.length || 0) ||
+        (currentSession.violations?.length || 0) !== (previousSession.violations?.length || 0);
+
+      if (shouldSyncSession) {
+        setActiveExamData(prev => prev ? ({ ...prev, session: currentSession }) : null);
+      }
+    });
+  }, [initStatus, activeExamData?.session.studentId, activeExamData?.exam.id]);
 
 
   // --- Handlers ---

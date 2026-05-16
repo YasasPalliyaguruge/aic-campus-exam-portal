@@ -30,6 +30,12 @@ interface Exam {
   studentCredentials?: Record<string, string>;
 }
 
+interface AccessCodeLookup {
+  code: string;
+  examId: string;
+  studentId: string;
+}
+
 interface StudentSession {
   id?: string;
   studentId: string;
@@ -100,6 +106,49 @@ const loadSession = async (studentId: string, examId: string) => {
   return { ref: sessionRef, session: withId<StudentSession>(sessionSnap) };
 };
 
+const findExamByAccessCode = async (user: User, accessCode: string) => {
+  const lookupSnap = await db.collection('accessCodes')
+    .where('code', '==', accessCode)
+    .where('studentId', '==', user.id)
+    .limit(5)
+    .get();
+
+  for (const lookupDoc of lookupSnap.docs) {
+    const lookup = lookupDoc.data() as AccessCodeLookup;
+    const examSnap = await db.collection('exams').doc(lookup.examId).get();
+    if (!examSnap.exists) continue;
+
+    const exam = withId<Exam>(examSnap);
+    const assigned = exam.assignedStudents || [];
+    const storedCode = normalizeCode(exam.studentCredentials?.[user.id]);
+    if (exam.status === 'PUBLISHED' && assigned.includes(user.id) && storedCode === accessCode) {
+      return exam;
+    }
+  }
+
+  // Compatibility fallback for exams published before accessCodes documents existed.
+  const examsSnap = await db.collection('exams').where('status', '==', 'PUBLISHED').get();
+  const matchedExamSnap = examsSnap.docs.find((examSnap) => {
+    const exam = withId<Exam>(examSnap);
+    const assigned = exam.assignedStudents || [];
+    const storedCode = normalizeCode(exam.studentCredentials?.[user.id]);
+    return assigned.includes(user.id) && storedCode && storedCode === accessCode;
+  });
+
+  if (!matchedExamSnap) return null;
+
+  const exam = withId<Exam>(matchedExamSnap);
+  await db.collection('accessCodes').doc(`${exam.id}_${user.id}`).set({
+    code: accessCode,
+    examId: exam.id,
+    studentId: user.id,
+    examStatus: exam.status,
+    updatedAt: Date.now(),
+  }, { merge: true });
+
+  return exam;
+};
+
 const responseFor = (exam: Exam, session: StudentSession, user?: User) => {
   const serverNowMs = Date.now();
   return {
@@ -130,17 +179,8 @@ export const validateStudentAccess = onCall(async (request) => {
   if (!userSnap) throw new HttpsError('not-found', 'Student not found.');
 
   const user = withId<User>(userSnap);
-  const examsSnap = await db.collection('exams').where('status', '==', 'PUBLISHED').get();
-  const matchedExamSnap = examsSnap.docs.find((examSnap) => {
-    const exam = withId<Exam>(examSnap);
-    const assigned = exam.assignedStudents || [];
-    const storedCode = normalizeCode(exam.studentCredentials?.[user.id]);
-    return assigned.includes(user.id) && storedCode && storedCode === accessCode;
-  });
-
-  if (!matchedExamSnap) throw new HttpsError('permission-denied', 'Invalid access code.');
-
-  const exam = withId<Exam>(matchedExamSnap);
+  const exam = await findExamByAccessCode(user, accessCode);
+  if (!exam) throw new HttpsError('permission-denied', 'Invalid access code.');
   const now = Date.now();
   assertWindowOpen(exam, now);
 
