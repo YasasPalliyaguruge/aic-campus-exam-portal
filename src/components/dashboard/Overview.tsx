@@ -28,23 +28,23 @@ export const Overview = () => {
     .slice(0, 5);
 
   const StatCard = ({ icon: Icon, label, value, color, bg }: any) => (
-    <Card className="flex items-center gap-5 hover:scale-105 transition-transform cursor-default">
-      <div className={`p-4 rounded-2xl ${bg} ${color}`}>
-        <Icon size={28} />
+    <Card className="flex items-center gap-4 cursor-default">
+      <div className={`p-3 rounded-lg ${bg} ${color}`}>
+        <Icon size={24} />
       </div>
       <div>
-        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</p>
-        <h3 className="text-3xl font-bold text-gray-900 dark:text-white">{value}</h3>
+        <p className="text-xs font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</p>
+        <h3 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white">{value}</h3>
       </div>
     </Card>
   );
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-end gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard Overview</h2>
-          <p className="text-gray-500 dark:text-gray-400">Real-time insights and activity monitoring.</p>
+          <h2 className="text-3xl font-black tracking-tight text-gray-900 dark:text-white">Dashboard Overview</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Real-time insights and activity monitoring.</p>
         </div>
       </div>
 
@@ -60,7 +60,7 @@ export const Overview = () => {
         {/* Recent Submissions Table */}
         <Card className="col-span-1 lg:col-span-2 overflow-hidden flex flex-col">
           <div className="flex justify-between items-center mb-6">
-             <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+             <h3 className="text-lg font-black tracking-tight text-gray-900 dark:text-white flex items-center gap-2">
                <CheckCircle size={20} className="text-emerald-500"/> Recent Submissions
              </h3>
           </div>
@@ -70,12 +70,12 @@ export const Overview = () => {
               <div className="text-center py-12 text-gray-400">No submissions yet.</div>
             ) : (
               <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 font-medium uppercase text-xs">
+                <thead className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 font-bold uppercase text-xs tracking-wide">
                   <tr>
-                    <th className="px-4 py-3 rounded-l-lg">Student</th>
+                    <th className="px-4 py-3 rounded-l-md">Student</th>
                     <th className="px-4 py-3">Exam</th>
                     <th className="px-4 py-3">Submitted</th>
-                    <th className="px-4 py-3 text-right rounded-r-lg">Score</th>
+                    <th className="px-4 py-3 text-right rounded-r-md">Score</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -86,7 +86,7 @@ export const Overview = () => {
                       <tr key={session.id || session.studentId + session.examId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                         <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 font-bold text-xs">
+                            <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 font-bold text-xs">
                               {student?.name?.charAt(0) || 'S'}
                             </div>
                             {student?.name || session.studentId}
@@ -118,13 +118,13 @@ export const Overview = () => {
         
         {/* Live Activity Feed */}
         <Card className="flex flex-col h-full">
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+          <h3 className="text-lg font-black tracking-tight text-gray-900 dark:text-white mb-6 flex items-center gap-2">
             <Video size={20} className="text-amber-500"/> Live Proctoring
           </h3>
           
           <div className="space-y-4 flex-1 overflow-y-auto max-h-[400px] pr-2">
              {liveSessions.length === 0 ? (
-               <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center p-8 border-2 border-dashed border-gray-100 dark:border-gray-800 rounded-xl">
+               <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center p-8 border border-dashed border-gray-200 dark:border-gray-800 rounded-lg">
                  <Video size={32} className="mb-2 opacity-20"/>
                  <p>No active exams right now.</p>
                </div>
@@ -133,10 +133,10 @@ export const Overview = () => {
                  const student = users.find(u => u.id === s.studentId);
                  const exam = exams.find(e => e.id === s.examId);
                  return (
-                   <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                   <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700">
                      <div className="flex items-center gap-3">
                        <div className="relative">
-                         <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                         <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 overflow-hidden">
                             {s.currentFrame ? (
                               <img src={s.currentFrame} alt="Live" className="w-full h-full object-cover" />
                             ) : (

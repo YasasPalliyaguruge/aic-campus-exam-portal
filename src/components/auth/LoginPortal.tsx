@@ -35,70 +35,73 @@ export const LoginPortal = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Decorative Background Elements */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-violet-500/20 rounded-full blur-3xl dark:bg-violet-900/20" />
-        <div className="absolute bottom-[-10%] left-[-5%] w-[600px] h-[600px] bg-blue-500/20 rounded-full blur-3xl dark:bg-blue-900/20" />
-      </div>
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_100%)] flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none opacity-[0.45] dark:opacity-[0.18] bg-[linear-gradient(to_right,#94a3b8_1px,transparent_1px),linear-gradient(to_bottom,#94a3b8_1px,transparent_1px)] bg-[size:56px_56px]" />
+      <div className="absolute inset-x-0 top-0 h-48 pointer-events-none bg-gradient-to-b from-white/80 to-transparent dark:from-gray-950/80" />
 
       <div className="absolute top-6 right-6">
-        <button onClick={toggleTheme} className="p-2 rounded-full bg-white dark:bg-gray-800 shadow-lg hover:scale-110 transition-transform text-violet-600 dark:text-violet-400">
+        <button onClick={toggleTheme} className="p-2 rounded-lg bg-white/90 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800 shadow-sm hover:shadow transition-all text-gray-700 dark:text-gray-200">
           {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
         </button>
       </div>
 
-      <div className="max-w-5xl w-full bg-white/90 dark:bg-gray-900/90 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/20 dark:border-gray-800 overflow-hidden flex flex-col md:flex-row relative z-10">
+      <div className="max-w-5xl w-full bg-white dark:bg-gray-950 rounded-xl shadow-2xl shadow-gray-300/50 dark:shadow-black/30 border border-white dark:border-gray-800 overflow-hidden flex flex-col md:flex-row relative z-10">
         
         {/* Left Side - Brand */}
-        <div className="md:w-5/12 bg-gradient-to-br from-violet-800 to-indigo-900 p-8 md:p-12 flex flex-col justify-between text-white relative overflow-hidden min-h-[200px] md:min-h-auto">
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+        <div className="md:w-5/12 bg-gray-950 p-8 md:p-12 flex flex-col justify-between text-white relative overflow-hidden min-h-[220px] md:min-h-[620px]">
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(124,58,237,0.34),rgba(14,165,233,0.12)_45%,rgba(16,185,129,0.16))]"></div>
+          <div className="absolute inset-0 opacity-15 bg-[linear-gradient(to_right,#ffffff_1px,transparent_1px),linear-gradient(to_bottom,#ffffff_1px,transparent_1px)] bg-[size:44px_44px]"></div>
           <div className="relative z-10 text-center md:text-left">
             {/* Logos Container */}
             <div className="flex items-center justify-center md:justify-start gap-4 mb-6 md:mb-8">
               <img 
                 src="/images/AIC_Campus_Logo.png" 
                 alt="AIC Campus Logo" 
-                className="h-16 md:h-20 w-auto object-contain bg-white p-2 rounded-xl shadow-lg"
+                className="h-16 md:h-20 w-auto object-contain bg-white p-2 rounded-lg shadow-lg"
               />
               <img 
                 src="/images/IPAC_Logo.png" 
                 alt="IPAC Logo" 
-                className="h-16 md:h-20 w-auto object-contain bg-white/10 p-2 rounded-xl backdrop-blur-sm border border-white/10"
+                className="h-16 md:h-20 w-auto object-contain bg-white/10 p-2 rounded-lg backdrop-blur-sm border border-white/10"
               />
             </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tighter mb-1">AIC</h1>
-            <h2 className="text-xl md:text-2xl font-bold tracking-[0.2em] text-blue-300 mb-4">CAMPUS</h2>
-            <p className="text-violet-100 text-base md:text-lg font-medium italic opacity-90 hidden md:block">
+            <h1 className="text-5xl md:text-6xl font-black tracking-tight mb-1">AIC</h1>
+            <h2 className="text-xl md:text-2xl font-bold tracking-[0.22em] text-cyan-200 mb-5">CAMPUS</h2>
+            <p className="text-gray-200 text-base md:text-lg font-medium italic opacity-90 hidden md:block">
               Experience The Difference
             </p>
           </div>
-          <div className="text-xs text-violet-200/60 relative z-10 mt-4 md:mt-10 hidden md:block">
-            AIC Campus Exam Portal
+          <div className="relative z-10 mt-8 hidden md:grid grid-cols-2 gap-3 text-left">
+            <div className="rounded-lg border border-white/10 bg-white/10 p-4 backdrop-blur">
+              <p className="text-[11px] uppercase tracking-widest text-cyan-100/80 font-bold">Secure</p>
+              <p className="mt-1 text-sm text-white/85">Timed exams with proctoring controls</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-white/10 p-4 backdrop-blur">
+              <p className="text-[11px] uppercase tracking-widest text-emerald-100/80 font-bold">Reliable</p>
+              <p className="mt-1 text-sm text-white/85">Autosaved student responses</p>
+            </div>
           </div>
         </div>
 
         {/* Right Side - Login Form */}
         <div className="md:w-7/12 p-6 md:p-12 flex flex-col justify-center">
-          <div className="flex gap-6 mb-10 border-b border-gray-100 dark:border-gray-800 pb-2 overflow-x-auto">
+          <div className="inline-flex w-full rounded-lg bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-1 mb-9">
             <button 
               onClick={() => { setMode('STAFF'); setError(''); }}
-              className={`pb-4 font-semibold text-lg transition-all relative whitespace-nowrap ${mode === 'STAFF' ? 'text-violet-600 dark:text-violet-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+              className={`flex-1 rounded-md px-4 py-2.5 text-sm font-bold transition-all relative whitespace-nowrap ${mode === 'STAFF' ? 'bg-white dark:bg-gray-800 text-gray-950 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               Admin & Staff
-              {mode === 'STAFF' && <span className="absolute bottom-0 left-0 w-full h-1 bg-violet-600 rounded-t-full" />}
             </button>
             <button 
               onClick={() => { setMode('STUDENT'); setError(''); }}
-              className={`pb-4 font-semibold text-lg transition-all relative whitespace-nowrap ${mode === 'STUDENT' ? 'text-violet-600 dark:text-violet-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+              className={`flex-1 rounded-md px-4 py-2.5 text-sm font-bold transition-all relative whitespace-nowrap ${mode === 'STUDENT' ? 'bg-white dark:bg-gray-800 text-gray-950 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
             >
               Student Exam
-              {mode === 'STUDENT' && <span className="absolute bottom-0 left-0 w-full h-1 bg-violet-600 rounded-t-full" />}
             </button>
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-xl text-sm font-medium animate-shake border-l-4 border-red-500">
+            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium animate-shake border border-red-100 dark:border-red-900/30">
               <div className="flex items-start gap-2">
                 <AlertTriangle size={18} className="flex-shrink-0 mt-0.5" />
                 <div className="flex-1 whitespace-pre-line">{error}</div>
@@ -145,7 +148,7 @@ export const LoginPortal = () => {
                   </div>
                 </div>
                 
-                <Button type="submit" loading={isLoading} className="w-full justify-center py-3 md:py-4 text-lg shadow-violet-500/25">
+                <Button type="submit" loading={isLoading} className="w-full justify-center py-3.5">
                   Access Dashboard
                 </Button>
               </div>
@@ -179,7 +182,7 @@ export const LoginPortal = () => {
                   </div>
                 </div>
 
-                <Button type="submit" loading={isLoading} className="w-full justify-center py-3 md:py-4 text-lg shadow-violet-500/25">
+                <Button type="submit" loading={isLoading} className="w-full justify-center py-3.5">
                   Verify & Enter Lobby
                 </Button>
               </div>
