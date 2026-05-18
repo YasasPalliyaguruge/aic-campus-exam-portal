@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop } from 'lucide-react';
+import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop, Cloud, CloudOff, Save } from 'lucide-react';
 import { Exam, StudentSession, UserRole, QuestionType } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -22,6 +22,8 @@ type LocalExamDraft = {
   savedAt: number;
   revision: number;
 };
+
+type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offline' | 'error';
 
 const CLOUD_AUTOSAVE_DEBOUNCE_MS = 25000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 60000;
@@ -51,6 +53,11 @@ export const ActiveExam = () => {
   const [isSplitView, setIsSplitView] = useState(false); // Split Screen State
   const [uploadedFiles, setUploadedFiles] = useState<UploadedExamFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [draftSaveState, setDraftSaveState] = useState<{
+    phase: DraftSavePhase;
+    localSavedAt: number | null;
+    cloudSavedAt: number | null;
+  }>({ phase: 'idle', localSavedAt: null, cloudSavedAt: null });
   
   // Modal state for beautiful dialogs
   const { modalState, showModal, hideModal } = useModal();
@@ -62,6 +69,29 @@ export const ActiveExam = () => {
   useEffect(() => {
     uploadedFilesRef.current = uploadedFiles;
   }, [uploadedFiles]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setDraftSaveState(prev => ({
+        ...prev,
+        phase: pendingCloudSaveRef.current ? 'queued' : (prev.cloudSavedAt ? 'cloud' : prev.phase),
+      }));
+      if (activeExamDataRef.current && pendingCloudSaveRef.current) {
+        scheduleCloudDraftSave();
+      }
+    };
+    const handleOffline = () => {
+      setDraftSaveState(prev => ({ ...prev, phase: 'offline' }));
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const getDraftStorageKey = (studentId: string, examId: string) => `exam_draft_${studentId}_${examId}`;
 
@@ -93,7 +123,14 @@ export const ActiveExam = () => {
         revision: draftRevisionRef.current,
       };
       localStorage.setItem(getDraftStorageKey(studentId, examId), JSON.stringify(draft));
+      const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+      setDraftSaveState(prev => ({
+        ...prev,
+        phase: currentlyOnline ? 'local' : 'offline',
+        localSavedAt: draft.savedAt,
+      }));
     } catch (error) {
+      setDraftSaveState(prev => ({ ...prev, phase: 'error' }));
       console.warn('Failed to save local exam draft:', error);
     }
   };
@@ -109,13 +146,21 @@ export const ActiveExam = () => {
   const saveDraftToCloud = async (reason = 'autosave') => {
     const current = activeExamDataRef.current;
     if (!current || current.session.status === 'SUBMITTED' || current.session.status === 'COMPLETED') return;
+    const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+    if (!currentlyOnline) {
+      pendingCloudSaveRef.current = true;
+      setDraftSaveState(prev => ({ ...prev, phase: 'offline' }));
+      return;
+    }
     if (cloudSaveInFlightRef.current) {
       pendingCloudSaveRef.current = true;
+      setDraftSaveState(prev => ({ ...prev, phase: 'queued' }));
       return;
     }
 
     cloudSaveInFlightRef.current = true;
     pendingCloudSaveRef.current = false;
+    setDraftSaveState(prev => ({ ...prev, phase: 'saving' }));
     try {
       const updatedSession = await api.sessions.saveDraft(
         current.session.studentId,
@@ -125,12 +170,19 @@ export const ActiveExam = () => {
         draftRevisionRef.current,
       );
       lastCloudSaveAtRef.current = Date.now();
+      setDraftSaveState(prev => ({
+        ...prev,
+        phase: 'cloud',
+        cloudSavedAt: lastCloudSaveAtRef.current,
+      }));
       if (updatedSession) {
         setActiveExamData(prev => prev ? ({ ...prev, session: { ...prev.session, ...updatedSession } }) : null);
       }
       console.log(`Draft saved to cloud (${reason}).`);
     } catch (error) {
       pendingCloudSaveRef.current = true;
+      const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+      setDraftSaveState(prev => ({ ...prev, phase: currentlyOnline ? 'error' : 'offline' }));
       console.warn(`Draft cloud save failed (${reason}); local draft is still preserved.`, error);
     } finally {
       cloudSaveInFlightRef.current = false;
@@ -143,6 +195,12 @@ export const ActiveExam = () => {
   const scheduleCloudDraftSave = () => {
     if (!activeExamDataRef.current) return;
     pendingCloudSaveRef.current = true;
+    const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+    if (!currentlyOnline) {
+      setDraftSaveState(prev => ({ ...prev, phase: 'offline' }));
+      return;
+    }
+    setDraftSaveState(prev => ({ ...prev, phase: 'queued' }));
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current);
     }
@@ -263,6 +321,11 @@ export const ActiveExam = () => {
         answersRef.current = restoredAnswers; // Init ref
         uploadedFilesRef.current = restoredFiles;
         setUploadedFiles(restoredFiles);
+        setDraftSaveState({
+          phase: serverDraftSavedAt ? 'cloud' : 'idle',
+          localSavedAt: localDraft?.savedAt || null,
+          cloudSavedAt: serverDraftSavedAt || null,
+        });
         setInitStatus('READY');
 
         if (useLocalDraft) {
@@ -914,6 +977,51 @@ export const ActiveExam = () => {
   const { exam } = activeExamData;
   const currentQ = exam.questions[currentQuestionIndex];
   const currentA = answers[currentQ.id];
+  const lastSavedAt = draftSaveState.cloudSavedAt || draftSaveState.localSavedAt;
+  const saveTimeLabel = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+  const SaveStatusPill = () => {
+    const commonClass = 'flex items-center gap-2 px-2.5 md:px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap';
+    if (draftSaveState.phase === 'saving') {
+      return (
+        <div className={`${commonClass} bg-violet-50 border-violet-200 text-violet-700 dark:bg-violet-900/20 dark:border-violet-800 dark:text-violet-300`}>
+          <Loader2 size={14} className="animate-spin" />
+          <span className="hidden md:inline">Saving...</span>
+        </div>
+      );
+    }
+    if (draftSaveState.phase === 'offline') {
+      return (
+        <div className={`${commonClass} bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300`} title="Answers are saved locally and will sync when connection returns.">
+          <CloudOff size={14} />
+          <span className="hidden md:inline">Offline, saved locally</span>
+        </div>
+      );
+    }
+    if (draftSaveState.phase === 'error') {
+      return (
+        <div className={`${commonClass} bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300`} title="Local draft is preserved. Cloud sync will retry automatically.">
+          <AlertTriangle size={14} />
+          <span className="hidden md:inline">Sync retrying</span>
+        </div>
+      );
+    }
+    if (draftSaveState.phase === 'queued' || draftSaveState.phase === 'local') {
+      return (
+        <div className={`${commonClass} bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300`} title="Your answer is saved on this device and queued for cloud sync.">
+          <Save size={14} />
+          <span className="hidden md:inline">Saved locally</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${commonClass} bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300`}>
+        <Cloud size={14} />
+        <span className="hidden md:inline">{saveTimeLabel ? `Saved ${saveTimeLabel}` : 'Cloud ready'}</span>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col font-sans select-none">
@@ -930,6 +1038,8 @@ export const ActiveExam = () => {
          </div>
 
          <div className="flex items-center gap-3 md:gap-6">
+            <SaveStatusPill />
+
             <div className={`flex items-center gap-2 md:gap-3 px-3 py-1.5 md:px-4 md:py-2 rounded-full border ${
               (timeLeft || 0) < 300 ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300'
             }`}>
