@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop, Cloud, CloudOff, Save } from 'lucide-react';
+import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop, Cloud, CloudOff, Save, Flag } from 'lucide-react';
 import { Exam, StudentSession, UserRole, QuestionType } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -53,6 +53,7 @@ export const ActiveExam = () => {
   const [isSplitView, setIsSplitView] = useState(false); // Split Screen State
   const [uploadedFiles, setUploadedFiles] = useState<UploadedExamFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<string[]>([]);
   const [draftSaveState, setDraftSaveState] = useState<{
     phase: DraftSavePhase;
     localSavedAt: number | null;
@@ -78,7 +79,7 @@ export const ActiveExam = () => {
       }));
       if (activeExamDataRef.current && pendingCloudSaveRef.current) {
         scheduleCloudDraftSave();
-      }
+    }
     };
     const handleOffline = () => {
       setDraftSaveState(prev => ({ ...prev, phase: 'offline' }));
@@ -94,6 +95,27 @@ export const ActiveExam = () => {
   }, []);
 
   const getDraftStorageKey = (studentId: string, examId: string) => `exam_draft_${studentId}_${examId}`;
+  const getFlagStorageKey = (studentId: string, examId: string) => `exam_flags_${studentId}_${examId}`;
+
+  const readQuestionFlags = (studentId: string, examId: string): string[] => {
+    try {
+      const raw = localStorage.getItem(getFlagStorageKey(studentId, examId));
+      if (!raw) return [];
+      const flags = JSON.parse(raw);
+      return Array.isArray(flags) ? flags.filter(flag => typeof flag === 'string') : [];
+    } catch (error) {
+      console.warn('Failed to read question flags:', error);
+      return [];
+    }
+  };
+
+  const persistQuestionFlags = (studentId: string, examId: string, flags: string[]) => {
+    try {
+      localStorage.setItem(getFlagStorageKey(studentId, examId), JSON.stringify(flags));
+    } catch (error) {
+      console.warn('Failed to save question flags:', error);
+    }
+  };
 
   const readLocalDraft = (studentId: string, examId: string): LocalExamDraft | null => {
     try {
@@ -321,6 +343,7 @@ export const ActiveExam = () => {
         answersRef.current = restoredAnswers; // Init ref
         uploadedFilesRef.current = restoredFiles;
         setUploadedFiles(restoredFiles);
+        setFlaggedQuestionIds(readQuestionFlags(freshSession.studentId, exam.id));
         setDraftSaveState({
           phase: serverDraftSavedAt ? 'cloud' : 'idle',
           localSavedAt: localDraft?.savedAt || null,
@@ -767,7 +790,17 @@ export const ActiveExam = () => {
        answersRef.current = newAnswers;
        setAnswers(newAnswers);
        persistDraft(newAnswers, uploadedFilesRef.current);
-    }
+     }
+  };
+
+  const toggleFlagCurrentQuestion = () => {
+    if (!activeExamData) return;
+    const qId = activeExamData.exam.questions[currentQuestionIndex].id;
+    setFlaggedQuestionIds(prev => {
+      const next = prev.includes(qId) ? prev.filter(id => id !== qId) : [...prev, qId];
+      persistQuestionFlags(activeExamData.session.studentId, activeExamData.exam.id, next);
+      return next;
+    });
   };
 
   const handleBlockedPaste = () => {
@@ -977,6 +1010,7 @@ export const ActiveExam = () => {
   const { exam } = activeExamData;
   const currentQ = exam.questions[currentQuestionIndex];
   const currentA = answers[currentQ.id];
+  const isCurrentQuestionFlagged = flaggedQuestionIds.includes(currentQ.id);
   const lastSavedAt = draftSaveState.cloudSavedAt || draftSaveState.localSavedAt;
   const saveTimeLabel = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -1099,6 +1133,18 @@ export const ActiveExam = () => {
                    Question {currentQuestionIndex + 1} of {exam.questions.length}
                  </Badge>
                  <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
+                   <button
+                     type="button"
+                     onClick={toggleFlagCurrentQuestion}
+                     className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                       isCurrentQuestionFlagged
+                         ? 'border-amber-300 bg-amber-50 text-amber-700 shadow-sm shadow-amber-500/10 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
+                         : 'border-gray-200 bg-white text-gray-500 hover:border-amber-300 hover:text-amber-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:border-amber-700 dark:hover:text-amber-300'
+                     }`}
+                   >
+                     <Flag size={14} className={isCurrentQuestionFlagged ? 'fill-current' : ''} />
+                     {isCurrentQuestionFlagged ? 'Flagged' : 'Flag'}
+                   </button>
                    <span className="font-mono">{currentQ.points} pts</span>
                  </div>
                </div>
@@ -1306,6 +1352,7 @@ export const ActiveExam = () => {
                       {exam.questions.map((q, idx) => {
                         const isAnswered = answers[q.id] !== undefined && answers[q.id] !== '' && (Array.isArray(answers[q.id]) ? answers[q.id].length > 0 : true);
                         const isCurrent = idx === currentQuestionIndex;
+                        const isFlagged = flaggedQuestionIds.includes(q.id);
                         
                         return (
                           <button
@@ -1313,15 +1360,19 @@ export const ActiveExam = () => {
                             onClick={() => {
                               goToQuestion(idx);
                             }}
-                            className={`aspect-square rounded-lg flex items-center justify-center text-sm font-bold transition-all ${
+                            className={`relative aspect-square rounded-lg flex items-center justify-center text-sm font-bold transition-all ${
                               isCurrent 
                                 ? 'bg-violet-600 text-white ring-2 ring-violet-300 dark:ring-violet-800' 
+                                : isFlagged
+                                  ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:ring-amber-800'
                                 : isAnswered
                                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                                   : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                             }`}
+                            title={isFlagged ? `Question ${idx + 1} flagged for review` : `Question ${idx + 1}`}
                           >
-                            {idx + 1}
+                            <span>{idx + 1}</span>
+                            {isFlagged && !isCurrent && <Flag size={10} className="absolute mt-6 fill-current" />}
                           </button>
                         );
                       })}
