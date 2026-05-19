@@ -6,6 +6,8 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Exam, StudentSession, User } from '../../types';
 import { Modal, useModal } from '../ui/Modal';
+import { SafeHtml } from '../ui/SafeHtml';
+import { escapeHtml, sanitizeRichHtml } from '../../utils/htmlSanitizer';
 
 export const StudentReview = () => {
   const { exams, sessions, users, programs } = useApp();
@@ -134,7 +136,7 @@ export const StudentReview = () => {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Answer Script - ${selectedStudent?.name || 'Unknown Student'} - ${selectedExam.title}</title>
+        <title>Answer Script - ${escapeHtml(selectedStudent?.name || 'Unknown Student')} - ${escapeHtml(selectedExam.title)}</title>
         <style>
           @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
           
@@ -510,10 +512,10 @@ export const StudentReview = () => {
           <div class="document-title">📄 ANSWER SCRIPT</div>
           
           <div class="exam-info">
-            <div class="exam-title">${selectedExam.title}</div>
+            <div class="exam-title">${escapeHtml(selectedExam.title)}</div>
             <div class="module-program">
-              <span class="info-badge"><strong>Module:</strong> ${moduleCode} - ${moduleName}</span>
-              <span class="info-badge"><strong>Program:</strong> ${programName}</span>
+              <span class="info-badge"><strong>Module:</strong> ${escapeHtml(moduleCode)} - ${escapeHtml(moduleName)}</span>
+              <span class="info-badge"><strong>Program:</strong> ${escapeHtml(programName)}</span>
             </div>
           </div>
         </div>
@@ -522,8 +524,8 @@ export const StudentReview = () => {
         <div class="student-section">
           <div class="student-main">
             <div class="student-identity">
-              <h2>${selectedStudent?.name || 'Unknown Student'}</h2>
-              <div class="student-id-box">ID: ${selectedStudent?.studentId || selectedStudent?.email || 'N/A'}</div>
+              <h2>${escapeHtml(selectedStudent?.name || 'Unknown Student')}</h2>
+              <div class="student-id-box">ID: ${escapeHtml(selectedStudent?.studentId || selectedStudent?.email || 'N/A')}</div>
             </div>
           </div>
           
@@ -554,8 +556,8 @@ export const StudentReview = () => {
           const answer = selectedSession.answers[q.id];
           const formattedAnswer = answer 
             ? (Array.isArray(answer) 
-                ? answer.join(', ') 
-                : String(answer))
+                ? escapeHtml(answer.join(', '))
+                : sanitizeRichHtml(String(answer)))
             : null;
           
           return `
@@ -563,12 +565,12 @@ export const StudentReview = () => {
             <div class="question-header">
               <span class="question-num">Question ${idx + 1}</span>
               <div class="question-meta">
-                <span class="question-type">${q.type.replace('_', ' ')}</span>
+                <span class="question-type">${escapeHtml(q.type.replace('_', ' '))}</span>
                 <span class="question-points">${q.points} pts</span>
               </div>
             </div>
             <div class="question-body">
-              <div class="question-text">${q.text}</div>
+              <div class="question-text">${sanitizeRichHtml(q.text)}</div>
             </div>
             <div class="answer-box">
               <div class="answer-label">✍️ Student's Response</div>
@@ -584,8 +586,8 @@ export const StudentReview = () => {
             <div class="files-header">Uploaded Files</div>
             ${selectedSession.uploadedFiles.map((file, idx) => `
               <div class="file-item">
-                <span class="file-name">${idx + 1}. ${file.name}</span>
-                <span class="file-meta">${file.type} • ${(file.size / 1024 / 1024).toFixed(2)} MB</span>
+                <span class="file-name">${idx + 1}. ${escapeHtml(file.name)}</span>
+                <span class="file-meta">${escapeHtml(file.type)} • ${(file.size / 1024 / 1024).toFixed(2)} MB</span>
               </div>
             `).join('')}
             <p class="files-note">Note: Files cannot be embedded in PDF. Download separately from the web interface.</p>
@@ -802,9 +804,9 @@ export const StudentReview = () => {
                     <Badge>Question {idx + 1}</Badge>
                     <span className="text-sm text-gray-500">{question.points} points</span>
                   </div>
-                  <div 
+                  <SafeHtml
+                    html={question.text}
                     className="font-semibold text-gray-900 dark:text-white mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
-                    dangerouslySetInnerHTML={{ __html: question.text }}
                   />
                 </div>
                 {score !== undefined && (
@@ -825,9 +827,9 @@ export const StudentReview = () => {
                       ))}
                     </div>
                   ) : (
-                    <div 
+                    <SafeHtml
+                      html={answer}
                       className="prose dark:prose-invert max-w-none text-gray-900 dark:text-white [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2"
-                      dangerouslySetInnerHTML={{ __html: answer }}
                     />
                   )
                 ) : (

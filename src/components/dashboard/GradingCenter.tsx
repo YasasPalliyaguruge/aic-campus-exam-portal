@@ -8,6 +8,7 @@ import { Input } from '../ui/Input';
 import { Badge } from '../ui/Badge';
 import { TextArea } from '../ui/TextArea';
 import { Modal, useModal } from '../ui/Modal';
+import { SafeHtml } from '../ui/SafeHtml';
 
 export const GradingCenter = () => {
   const { sessions, exams, users, isLoading, refreshData } = useApp();
@@ -153,7 +154,7 @@ export const GradingCenter = () => {
                
                // Check if it looks like HTML (regex pattern for any HTML tag)
                if (typeof ans === 'string' && /<[a-z][\s\S]*>/i.test(ans)) {
-                  return <div className="prose dark:prose-invert max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2" dangerouslySetInnerHTML={{ __html: ans }} />;
+                  return <SafeHtml html={ans} className="prose dark:prose-invert max-w-none [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2" />;
                }
                
                return <p className="whitespace-pre-wrap">{ans || "(No Answer)"}</p>;
@@ -165,9 +166,9 @@ export const GradingCenter = () => {
                    <Badge color="slate">Question {idx + 1} ({q.type})</Badge>
                    <span className="font-bold text-gray-500 dark:text-gray-400">{q.points} pts</span>
                  </div>
-                 <div 
+                 <SafeHtml
+                   html={q.text}
                    className="font-medium text-xl mb-6 text-gray-900 dark:text-gray-100 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
-                   dangerouslySetInnerHTML={{ __html: q.text }}
                  />
                  
                  <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 mb-6">

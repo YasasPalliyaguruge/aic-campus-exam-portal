@@ -9,6 +9,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Modal, useModal } from '../ui/Modal';
+import { SafeHtml } from '../ui/SafeHtml';
 
 export const StudentReview = () => {
   const { auth, sessions, exams, logout } = useApp();
@@ -280,9 +281,9 @@ export const StudentReview = () => {
                   )}
                 </div>
 
-                <div 
+                <SafeHtml
+                  html={question.text}
                   className="font-semibold text-gray-900 dark:text-white text-lg mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
-                  dangerouslySetInnerHTML={{ __html: question.text }}
                 />
 
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border-l-4 border-violet-500">
@@ -301,8 +302,8 @@ export const StudentReview = () => {
                     ) : (
                       <div className="prose prose-violet dark:prose-invert max-w-none">
                         {typeof answer === 'string' && /<[a-z][\s\S]*>/i.test(answer) ? (
-                          <div 
-                            dangerouslySetInnerHTML={{ __html: answer }} 
+                          <SafeHtml
+                            html={answer}
                             className="text-gray-900 dark:text-white [&>p]:mb-3 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>br]:block [&>div]:mb-2"
                           />
                         ) : (

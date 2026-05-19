@@ -9,6 +9,7 @@ import { Select } from '../ui/Select';
 import { TextArea } from '../ui/TextArea';
 import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
+import { SafeHtml } from '../ui/SafeHtml';
 import { Modal, useModal } from '../ui/Modal';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
@@ -681,9 +682,9 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                            <Badge>{q.type}</Badge>
                            <span className="font-bold text-gray-400">{q.points} pts</span>
                         </div>
-                        <div 
+                        <SafeHtml
+                          html={q.text}
                           className="text-lg font-medium text-gray-900 dark:text-white mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
-                          dangerouslySetInnerHTML={{ __html: q.text }}
                         />
                         {q.options && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

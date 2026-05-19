@@ -7,6 +7,7 @@ import {
   Table, Minus, Link, Quote,
   Undo, Redo, X, Plus, Trash2
 } from 'lucide-react';
+import { isSafeRichTextUrl, sanitizeRichHtml } from '../../utils/htmlSanitizer';
 
 interface RichTextEditorProps {
   value: string;
@@ -74,7 +75,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
   useEffect(() => {
     if (editorRef.current && value !== editorRef.current.innerHTML) {
       if (!isFocused) {
-        editorRef.current.innerHTML = value || '';
+        editorRef.current.innerHTML = sanitizeRichHtml(value);
       } else if (value === '') {
         editorRef.current.innerHTML = '';
       }
@@ -113,18 +114,31 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
 
   const handleInput = () => {
     if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
+      const html = sanitizeRichHtml(editorRef.current.innerHTML);
       onChange(html === '<br>' ? '' : html);
     }
   };
 
-  const blockPasteLikeInput = (event: React.SyntheticEvent) => {
+  const blockPasteLikeInput = (event: React.SyntheticEvent | Event) => {
     if (!disablePaste) return;
     event.preventDefault();
     const now = Date.now();
     if (now - lastBlockedPasteRef.current > 500) {
       lastBlockedPasteRef.current = now;
       onBlockedPaste?.();
+    }
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    if (disablePaste) {
+      blockPasteLikeInput(event);
+      return;
+    }
+
+    const html = event.clipboardData.getData('text/html');
+    if (html) {
+      event.preventDefault();
+      insertHtmlAtCursor(sanitizeRichHtml(html));
     }
   };
 
@@ -136,13 +150,22 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!disablePaste) return;
     const hasText = event.dataTransfer.types.some(type => type === 'text/plain' || type === 'text/html');
-    if (hasText) blockPasteLikeInput(event);
+    if (disablePaste) {
+      if (hasText) blockPasteLikeInput(event);
+      return;
+    }
+
+    const html = event.dataTransfer.getData('text/html');
+    if (html) {
+      event.preventDefault();
+      insertHtmlAtCursor(sanitizeRichHtml(html));
+    }
   };
 
   // Insert HTML at cursor position
   const insertHtmlAtCursor = (html: string) => {
+    const safeHtml = sanitizeRichHtml(html);
     editorRef.current?.focus();
     
     // Try to restore selection if we have one
@@ -154,11 +177,11 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
       }
     }
     
-    const success = document.execCommand('insertHTML', false, html);
+    const success = document.execCommand('insertHTML', false, safeHtml);
     
     // Fallback: append to editor if insertHTML fails
     if (!success && editorRef.current) {
-      editorRef.current.innerHTML += html;
+      editorRef.current.innerHTML += safeHtml;
     }
     
     handleInput();
@@ -209,6 +232,10 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
 
   // Insert link from modal
   const insertLink = () => {
+    if (!isSafeRichTextUrl(linkUrl)) {
+      return;
+    }
+
     setShowLinkModal(false);
     
     setTimeout(() => {
@@ -312,7 +339,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
         ref={editorRef}
         contentEditable
         onInput={handleInput}
-        onPaste={blockPasteLikeInput}
+        onPaste={handlePaste}
         onBeforeInput={handleBeforeInput}
         onDrop={handleDrop}
         onFocus={() => {

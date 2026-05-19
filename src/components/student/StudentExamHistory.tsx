@@ -6,6 +6,7 @@ import { useApp } from '../../contexts/AppContext';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { SafeHtml } from '../ui/SafeHtml';
 
 export const StudentExamHistory = () => {
   const { auth, sessions, exams, logout } = useApp();
@@ -174,9 +175,9 @@ export const StudentExamHistory = () => {
                     </div>
                   </div>
 
-                  <div 
+                  <SafeHtml
+                    html={question.text}
                     className="font-semibold text-gray-900 dark:text-white text-lg mb-4 rich-text-content [&>ul]:list-disc [&>ul]:pl-6 [&>ol]:list-decimal [&>ol]:pl-6 [&>p]:mb-2"
-                    dangerouslySetInnerHTML={{ __html: question.text }}
                   />
 
                   <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 border-l-4 border-violet-500">
@@ -195,7 +196,7 @@ export const StudentExamHistory = () => {
                       ) : (
                         <div className="prose prose-violet dark:prose-invert max-w-none">
                           {typeof answer === 'string' && (answer.includes('<p>') || answer.includes('<ul>') || answer.includes('<b>')) ? (
-                            <div dangerouslySetInnerHTML={{ __html: answer }} className="text-gray-900 dark:text-white" />
+                            <SafeHtml html={answer} className="text-gray-900 dark:text-white" />
                           ) : (
                             <p className="text-gray-900 dark:text-white whitespace-pre-wrap">{answer}</p>
                           )}

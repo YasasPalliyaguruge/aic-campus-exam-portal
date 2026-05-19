@@ -10,6 +10,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
+import { SafeHtml } from '../ui/SafeHtml';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth as firebaseAuth, storage } from '../../firebase';
 import { Modal, useModal } from '../ui/Modal';
@@ -1209,7 +1210,8 @@ export const ActiveExam = () => {
                </div>
 
                {/* Render question text with HTML formatting support */}
-               <div 
+               <SafeHtml
+                 html={currentQ.text}
                  className="text-base md:text-lg font-medium text-gray-800 dark:text-gray-100 mb-6 leading-relaxed rich-text-content
                    [&>ul]:list-disc [&>ul]:pl-6 [&>ul]:mb-3 
                    [&>ol]:list-decimal [&>ol]:pl-6 [&>ol]:mb-3 
@@ -1217,7 +1219,6 @@ export const ActiveExam = () => {
                    [&>table]:w-full [&>table]:border-collapse [&>table]:my-4 [&>table]:shadow-sm
                    [&_td]:border [&_td]:border-gray-300 [&_td]:dark:border-gray-600 [&_td]:p-3 [&_td]:bg-gray-50 [&_td]:dark:bg-gray-800/50 
                    [&_th]:border [&_th]:border-gray-400 [&_th]:dark:border-gray-500 [&_th]:p-3 [&_th]:bg-gray-100 [&_th]:dark:bg-gray-800 [&_th]:font-bold [&_th]:text-gray-900 [&_th]:dark:text-white"
-                 dangerouslySetInnerHTML={{ __html: currentQ.text }}
                />
 
                <div className="flex-1 space-y-4">
