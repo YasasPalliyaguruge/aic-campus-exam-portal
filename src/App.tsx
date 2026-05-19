@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ShieldCheck, Loader2, CheckCircle } from 'lucide-react';
 import { AuthState, User, Program, Exam, StudentSession, UserRole, Violation, Module } from './types';
 import { AppContext } from './contexts/AppContext';
@@ -36,6 +36,7 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   // --- Data Sync ---
   const refreshData = async () => {
@@ -107,6 +108,13 @@ const App = () => {
   // Real-time session subscription
   useEffect(() => {
     if (!auth.isAuthenticated || auth.user?.role === UserRole.STUDENT) return;
+    const isRealtimeSessionRoute =
+      location.pathname === '/dashboard' ||
+      location.pathname.startsWith('/dashboard/proctor') ||
+      location.pathname.startsWith('/dashboard/review') ||
+      location.pathname.startsWith('/dashboard/grading');
+
+    if (!isRealtimeSessionRoute) return;
 
     console.log('🔄 Setting up real-time session subscription...');
     const unsubscribe = api.sessions.subscribe((updatedSessions) => {
@@ -118,7 +126,7 @@ const App = () => {
       console.log('🔌 Cleaning up session subscription');
       unsubscribe();
     };
-  }, [auth.isAuthenticated, auth.user?.role]);
+  }, [auth.isAuthenticated, auth.user?.role, location.pathname]);
 
   // --- Actions ---
 
