@@ -37,6 +37,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
   const [currentOptions, setCurrentOptions] = useState<string[]>([]);
   const [newOptionInput, setNewOptionInput] = useState('');
   const [correctAnswers, setCorrectAnswers] = useState<string[]>([]);
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   
   // Drag and drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -223,7 +224,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
     }
 
     const q: Question = {
-      id: `q_${Date.now()}`,
+      id: editingQuestionId || `q_${Date.now()}`,
       text: manualQText,
       type: manualQType,
       points: manualQPoints,
@@ -231,12 +232,18 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
       correctAnswer: manualQType === QuestionType.MULTI_SELECT ? correctAnswers : correctAnswers[0]
     };
 
-    setNewExam(prev => ({ ...prev, questions: [...(prev.questions || []), q] }));
+    setNewExam(prev => ({
+      ...prev,
+      questions: editingQuestionId
+        ? (prev.questions || []).map(existing => existing.id === editingQuestionId ? q : existing)
+        : [...(prev.questions || []), q]
+    }));
     
     // Reset Form
     setManualQText('');
     setCurrentOptions([]);
     setCorrectAnswers([]);
+    setEditingQuestionId(null);
     if (manualQType === QuestionType.MCQ) setManualQType(QuestionType.MCQ);
   };
 
@@ -251,9 +258,8 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
     setManualQPoints(q.points);
     setCurrentOptions(q.options || []);
     setCorrectAnswers(Array.isArray(q.correctAnswer) ? q.correctAnswer : (q.correctAnswer ? [q.correctAnswer] : []));
+    setEditingQuestionId(q.id);
     
-    // Remove from list (simulates edit by remove + re-add)
-    handleDeleteQuestion(q.id);
     setStep(1); // Go back to editor
   };
 
@@ -334,10 +340,14 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
       return;
     }
 
-    // Generate credentials
+    // Preserve existing credentials so editing a published exam does not lock students out.
+    const existingCredentials = {
+      ...(exam?.studentCredentials || {}),
+      ...(newExam.studentCredentials || {}),
+    };
     const credentials: Record<string, string> = {};
     newExam.assignedStudents?.forEach(sid => {
-      credentials[sid] = generateAccessCode();
+      credentials[sid] = existingCredentials[sid] || generateAccessCode();
     });
 
     let scheduleFields;
@@ -576,7 +586,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
           <div className="space-y-6">
             <Card className="sticky top-6 border-violet-200 dark:border-violet-900/50 shadow-lg shadow-violet-500/10">
               <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <PlusCircle size={20} className="text-violet-500"/> Add Question
+                <PlusCircle size={20} className="text-violet-500"/> {editingQuestionId ? 'Edit Question' : 'Add Question'}
               </h3>
               <div className="space-y-4">
                 <Select value={manualQType} onChange={(e: any) => setManualQType(e.target.value as QuestionType)}>
@@ -629,7 +639,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                    <Input type="number" className="py-1 w-20" value={manualQPoints} onChange={(e: any) => setManualQPoints(Number(e.target.value))} />
                  </div>
 
-                 <Button className="w-full" onClick={handleAddManual}>Add to Exam</Button>
+                 <Button className="w-full" onClick={handleAddManual}>{editingQuestionId ? 'Update Question' : 'Add to Exam'}</Button>
               </div>
             </Card>
           </div>
