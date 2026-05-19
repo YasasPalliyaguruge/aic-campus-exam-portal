@@ -59,6 +59,7 @@ interface StudentSession {
 
 const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
 const STAFF_ROLES = new Set(['ADMIN', 'LECTURER']);
+const FINAL_SUBMISSION_GRACE_MS = 2 * 60 * 1000;
 
 const requireAuthUid = (auth: { uid?: string } | undefined) => {
   if (!auth?.uid) throw new HttpsError('unauthenticated', 'Please sign in again.');
@@ -314,18 +315,27 @@ export const submitStudentSession = onCall(async (request) => {
     : windowEnd;
   const effectiveEnd = Math.min(windowEnd, individualEnd);
 
-  if (now > effectiveEnd) {
+  if (now > effectiveEnd + FINAL_SUBMISSION_GRACE_MS) {
     throw new HttpsError('failed-precondition', 'The submission window has closed.');
   }
+  const wasReceivedAfterDeadline = now > effectiveEnd;
 
   const updates: Partial<StudentSession> = {
     status: 'SUBMITTED',
-    submitTime: now,
+    submitTime: wasReceivedAfterDeadline ? effectiveEnd : now,
     answers: request.data?.answers || {},
     uploadedFiles: request.data?.uploadedFiles || [],
   };
-  await ref.set(updates, { merge: true });
-  return { session: { ...session, ...updates }, serverNowMs: now };
+  const persistedUpdates = {
+    ...updates,
+    ...(wasReceivedAfterDeadline ? {
+      submissionReceivedAt: now,
+      submissionDeadlineMs: effectiveEnd,
+      submittedInGraceWindow: true,
+    } : {}),
+  };
+  await ref.set(persistedUpdates, { merge: true });
+  return { session: { ...session, ...persistedUpdates }, serverNowMs: now };
 });
 
 export const saveStudentDraft = onCall(async (request) => {
