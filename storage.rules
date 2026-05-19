@@ -25,6 +25,21 @@ service firebase.storage {
         ];
     }
 
+    function isOwnedSubmissionFile(examId, studentId) {
+      return isAuthenticated()
+        && resource != null
+        && resource.metadata.ownerUid == request.auth.uid
+        && resource.metadata.examId == examId
+        && resource.metadata.studentId == studentId;
+    }
+
+    function isValidSubmissionOwner(examId, studentId) {
+      return isAuthenticated()
+        && request.resource.metadata.ownerUid == request.auth.uid
+        && request.resource.metadata.examId == examId
+        && request.resource.metadata.studentId == studentId;
+    }
+
     match /exam-resources/{fileName} {
       allow read: if isAuthenticated();
       allow create, update: if isStaff()
@@ -34,8 +49,9 @@ service firebase.storage {
     }
 
     match /exam-submissions/{examId}/{studentId}/{fileName} {
-      allow read: if isStaff();
-      allow create: if isAuthenticated() && isAllowedSubmissionFile();
+      allow read: if isStaff() || isOwnedSubmissionFile(examId, studentId);
+      allow create: if isAllowedSubmissionFile()
+        && isValidSubmissionOwner(examId, studentId);
       allow update, delete: if false;
     }
 

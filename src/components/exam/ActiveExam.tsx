@@ -11,7 +11,7 @@ import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../../firebase';
+import { auth as firebaseAuth, storage } from '../../firebase';
 import { Modal, useModal } from '../ui/Modal';
 
 type UploadedExamFile = { name: string; url: string; type: string; size: number; uploadedAt: number; };
@@ -27,6 +27,21 @@ type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offlin
 
 const CLOUD_AUTOSAVE_DEBOUNCE_MS = 25000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 60000;
+
+const sanitizeStorageFileName = (fileName: string) =>
+  fileName
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._-]/g, '')
+    .slice(0, 120) || 'submission-file';
+
+const getSubmissionContentType = (file: File) => {
+  if (file.type) return file.type;
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  if (extension === 'pdf') return 'application/pdf';
+  if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (extension === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  return 'application/octet-stream';
+};
 
 export const ActiveExam = () => {
   const { auth, submitExamSession, startExamSession, logout } = useApp();
@@ -948,14 +963,28 @@ export const ActiveExam = () => {
 
     setIsUploading(true);
     try {
-      const storageRef = ref(storage, `exam-submissions/${exam.id}/${session.studentId}/${Date.now()}_${file.name}`);
-      const snapshot = await uploadBytes(storageRef, file);
+      const ownerUid = firebaseAuth.currentUser?.uid;
+      if (!ownerUid) {
+        throw new Error('You must be signed in before uploading files.');
+      }
+
+      const safeFileName = sanitizeStorageFileName(file.name);
+      const storageRef = ref(storage, `exam-submissions/${exam.id}/${session.studentId}/${Date.now()}_${safeFileName}`);
+      const contentType = getSubmissionContentType(file);
+      const snapshot = await uploadBytes(storageRef, file, {
+        contentType,
+        customMetadata: {
+          ownerUid,
+          examId: exam.id,
+          studentId: session.studentId,
+        },
+      });
       const url = await getDownloadURL(snapshot.ref);
       
       const newFile = {
         name: file.name,
         url,
-        type: file.type,
+        type: contentType,
         size: file.size,
         uploadedAt: Date.now()
       };
@@ -966,17 +995,21 @@ export const ActiveExam = () => {
         persistDraft(answersRef.current, nextFiles, true);
         return nextFiles;
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Upload failed:", error);
+      const isPermissionError = error?.code === 'storage/unauthorized';
       showModal({
         title: 'Upload Failed',
-        message: 'Failed to upload your file. Please check your internet connection and try again.',
+        message: isPermissionError
+          ? 'Firebase Storage rejected the upload. Please make sure the file type is allowed and try again.'
+          : (error?.message || 'Failed to upload your file. Please check your internet connection and try again.'),
         type: 'error',
         showCancel: false,
         confirmText: 'OK',
       });
     } finally {
       setIsUploading(false);
+      e.target.value = '';
     }
   };
 
