@@ -541,8 +541,8 @@ export const ActiveExam = () => {
                 
                 // Create canvas and capture frame
                 const canvas = document.createElement('canvas');
-                canvas.width = 320;
-                canvas.height = 240;
+                canvas.width = 240;
+                canvas.height = 180;
                 const ctx = canvas.getContext('2d');
                 
                 if (!ctx) {
@@ -551,7 +551,7 @@ export const ActiveExam = () => {
                 }
                 
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const frameData = canvas.toDataURL('image/jpeg', 0.7);
+                const frameData = canvas.toDataURL('image/jpeg', 0.55);
                 
                 // Verify we have actual image data
                 if (frameData.length < 1000) {
@@ -560,6 +560,10 @@ export const ActiveExam = () => {
                 }
                 
                 console.log('📤 Uploading frame... (size:', Math.round(frameData.length / 1024), 'KB)');
+                if (frameData.length > 150000) {
+                  console.warn('Frame data too large, skipping upload');
+                  return;
+                }
                 
                 frameUploadInFlightRef.current = true;
                 await api.sessions.updateFrame(
@@ -574,7 +578,7 @@ export const ActiveExam = () => {
                 console.error('❌ Frame capture/upload failed:', error);
               }
                 frameUploadInFlightRef.current = false;
-            }, 5000); // Every 5 seconds
+            }, 15000); // Every 15 seconds
             
           }, 2000); // Wait 2 seconds before starting
         }
