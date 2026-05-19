@@ -11,7 +11,7 @@ import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
 import { SafeHtml } from '../ui/SafeHtml';
 import { Modal, useModal } from '../ui/Modal';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes } from 'firebase/storage';
 import { storage } from '../../firebase';
 import { buildScheduleFields, DEFAULT_EXAM_TIME_ZONE, EXAM_TIME_ZONES, toScheduleLocalInput } from '../../services/schedule';
 
@@ -122,9 +122,8 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
         const safeFileName = sanitizeStorageFileName(file.name);
         const storageRef = ref(storage, `exam-resources/${Date.now()}_${safeFileName}`);
         const snapshot = await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(snapshot.ref);
         
-        setNewExam(prev => ({ ...prev, referenceDocumentUrl: url }));
+        setNewExam(prev => ({ ...prev, referenceDocumentPath: snapshot.ref.fullPath, referenceDocumentUrl: undefined }));
         showModal({
           title: 'Document Attached',
           message: 'The case study PDF was uploaded successfully.',
@@ -132,7 +131,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
           confirmText: 'OK',
           showCancel: false,
         });
-        console.log('✅ File uploaded:', url);
+        console.log('Document uploaded:', snapshot.ref.fullPath);
       } catch (error: any) {
         console.error('Upload failed:', error);
         const isPermissionError = error?.code === 'storage/unauthorized';
@@ -384,6 +383,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
     const cleanExamData = removeUndefined({
         ...examData,
         referenceDocumentUrl: newExam.referenceDocumentUrl, // Ensure this is included
+        referenceDocumentPath: newExam.referenceDocumentPath,
         allowsFileUpload: newExam.allowsFileUpload,
         allowedFileTypes: newExam.allowsFileUpload ? newExam.allowedFileTypes : undefined,
         maxFileCount: newExam.allowsFileUpload ? newExam.maxFileCount : undefined
@@ -510,13 +510,13 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
                           <p>Uploading...</p>
                         </>
-                      ) : newExam.referenceDocumentUrl ? (
+                      ) : (newExam.referenceDocumentPath || newExam.referenceDocumentUrl) ? (
                         <>
                           <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400">
                             <CheckCircle size={24} />
                           </div>
                           <p className="font-medium text-emerald-600 dark:text-emerald-400">Document Attached</p>
-                          <p className="text-xs break-all">{newExam.referenceDocumentUrl}</p>
+                          <p className="text-xs break-all">{newExam.referenceDocumentPath || newExam.referenceDocumentUrl}</p>
                           <p className="text-xs mt-2 text-gray-400">Click to replace</p>
                         </>
                       ) : (

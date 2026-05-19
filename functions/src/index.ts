@@ -30,6 +30,8 @@ interface Exam {
   scheduledEndMs?: number;
   assignedStudents?: string[];
   studentCredentials?: Record<string, string>;
+  referenceDocumentUrl?: string;
+  referenceDocumentPath?: string;
   allowsFileUpload?: boolean;
   allowedFileTypes?: string[];
   maxFileCount?: number;
@@ -402,6 +404,53 @@ export const getStudentExamContext = onCall(async (request) => {
   const exam = await loadExam(session.examId);
 
   return responseFor(exam, session);
+});
+
+export const getExamReferenceDocumentUrl = onCall(async (request) => {
+  const uid = requireAuthUid(request.auth);
+  const examId = String(request.data?.examId || '');
+  if (!examId) throw new HttpsError('invalid-argument', 'examId is required.');
+
+  const sessionsSnap = await db.collection('sessions')
+    .where('authUid', '==', uid)
+    .where('examId', '==', examId)
+    .limit(1)
+    .get();
+  if (sessionsSnap.empty) throw new HttpsError('permission-denied', 'No active session was found for this reference document.');
+
+  const session = withId<StudentSession>(sessionsSnap.docs[0]);
+  assertSessionOwner(session, uid);
+  if (session.isTerminated || session.status === 'COMPLETED') {
+    throw new HttpsError('failed-precondition', 'This reference document is no longer available.');
+  }
+
+  const exam = await loadExam(examId);
+  assertWindowOpen(exam, Date.now());
+
+  const storagePath = exam.referenceDocumentPath || extractStoragePathFromDownloadUrl(exam.referenceDocumentUrl);
+  if (!storagePath || !storagePath.startsWith('exam-resources/')) {
+    throw new HttpsError('not-found', 'No reference document is attached to this exam.');
+  }
+
+  const storageBucket = getStorage(app).bucket(getDefaultStorageBucketName());
+  const file = storageBucket.file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError('not-found', 'Reference document was not found in Storage.');
+
+  const [metadata] = await file.getMetadata();
+  if (metadata.contentType !== 'application/pdf') {
+    throw new HttpsError('failed-precondition', 'Reference document is not a valid PDF.');
+  }
+
+  const [url] = await file.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + 15 * 60 * 1000,
+  });
+
+  return {
+    url,
+    serverNowMs: Date.now(),
+  };
 });
 
 export const startStudentSession = onCall(async (request) => {

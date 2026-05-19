@@ -67,6 +67,8 @@ export const ActiveExam = () => {
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [isSplitView, setIsSplitView] = useState(false); // Split Screen State
+  const [referenceDocumentUrl, setReferenceDocumentUrl] = useState<string | null>(null);
+  const [isReferenceDocumentLoading, setIsReferenceDocumentLoading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedExamFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [flaggedQuestionIds, setFlaggedQuestionIds] = useState<string[]>([]);
@@ -843,6 +845,36 @@ export const ActiveExam = () => {
     });
   };
 
+  const toggleReferenceDocument = async () => {
+    if (!activeExamData) return;
+    if (isSplitView) {
+      setIsSplitView(false);
+      return;
+    }
+
+    setIsReferenceDocumentLoading(true);
+    try {
+      const url = await api.student.getReferenceDocumentUrl(activeExamData.exam.id);
+      setReferenceDocumentUrl(url);
+      setIsSplitView(true);
+    } catch (error) {
+      if (activeExamData.exam.referenceDocumentUrl) {
+        setReferenceDocumentUrl(activeExamData.exam.referenceDocumentUrl);
+        setIsSplitView(true);
+      } else {
+        showModal({
+          title: 'Document Unavailable',
+          message: 'The case study document could not be opened. Please contact your proctor.',
+          type: 'error',
+          showCancel: false,
+          confirmText: 'OK',
+        });
+      }
+    } finally {
+      setIsReferenceDocumentLoading(false);
+    }
+  };
+
   // Actual submission logic (separated for modal callback)
   const doSubmit = async (stuId: string, exId: string, finalAnswers: Record<string, any>, finalFiles: any[]) => {
     setInitStatus('SUBMITTING');
@@ -1072,6 +1104,7 @@ export const ActiveExam = () => {
   const currentQ = exam.questions[currentQuestionIndex];
   const currentA = answers[currentQ.id];
   const isCurrentQuestionFlagged = flaggedQuestionIds.includes(currentQ.id);
+  const hasReferenceDocument = Boolean(exam.referenceDocumentPath || exam.referenceDocumentUrl);
   const lastSavedAt = draftSaveState.cloudSavedAt || draftSaveState.localSavedAt;
   const saveTimeLabel = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -1144,11 +1177,12 @@ export const ActiveExam = () => {
                </span>
             </div>
             
-            {exam.referenceDocumentUrl && (
+            {hasReferenceDocument && (
               <Button 
                 size="sm" 
                 variant="ghost"
-                onClick={() => setIsSplitView(!isSplitView)}
+                onClick={toggleReferenceDocument}
+                loading={isReferenceDocumentLoading}
                 className="gap-2 hidden md:flex"
               >
                 {isSplitView ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
@@ -1175,10 +1209,10 @@ export const ActiveExam = () => {
 
       <main className="flex flex-1 gap-6 overflow-hidden h-full">
         {/* PDF Panel */}
-        {isSplitView && exam.referenceDocumentUrl && (
+        {isSplitView && referenceDocumentUrl && (
           <div className="w-[45%] overflow-hidden">
             <iframe 
-              src={exam.referenceDocumentUrl} 
+              src={referenceDocumentUrl}
               className="w-full h-full border-0 rounded-lg"
               title="Reference Document"
             />

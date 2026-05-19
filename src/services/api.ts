@@ -191,6 +191,11 @@ export const api = {
       const result = await callFunction<void, { serverNowMs: number }>('getTrustedTime');
       updateCachedServerTime(result.serverNowMs);
       return result.serverNowMs;
+    },
+    getReferenceDocumentUrl: async (examId: string) => {
+      const result = await callFunction<{ examId: string }, { url: string; serverNowMs: number }>('getExamReferenceDocumentUrl', { examId });
+      updateCachedServerTime(result.serverNowMs);
+      return result.url;
     }
   },
 

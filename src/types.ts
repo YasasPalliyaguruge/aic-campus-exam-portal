@@ -52,6 +52,7 @@ export interface Exam {
   assignedStudents: string[]; // List of User IDs allowed to take this exam
   studentCredentials: Record<string, string>; // Map of StudentID -> Unique Access Code
   referenceDocumentUrl?: string; // Optional PDF URL for Case Study
+  referenceDocumentPath?: string; // Storage object path for secured reference document access
   // File Submission Config
   allowsFileUpload?: boolean;
   allowedFileTypes?: string[]; // e.g. ['.pdf', '.docx']

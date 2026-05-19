@@ -41,7 +41,7 @@ service firebase.storage {
     }
 
     match /exam-resources/{fileName} {
-      allow read: if isAuthenticated();
+      allow read: if isStaff();
       allow create, update: if isStaff()
         && isPdf()
         && request.resource.size <= 10 * 1024 * 1024;
