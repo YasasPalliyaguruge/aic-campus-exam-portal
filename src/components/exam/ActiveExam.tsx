@@ -15,7 +15,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth as firebaseAuth, storage } from '../../firebase';
 import { Modal, useModal } from '../ui/Modal';
 
-type UploadedExamFile = { name: string; url: string; type: string; size: number; uploadedAt: number; };
+type UploadedExamFile = { name: string; url: string; storagePath?: string; type: string; size: number; uploadedAt: number; };
 
 type LocalExamDraft = {
   answers: Record<string, any>;
@@ -985,6 +985,7 @@ export const ActiveExam = () => {
       const newFile = {
         name: file.name,
         url,
+        storagePath: snapshot.ref.fullPath,
         type: contentType,
         size: file.size,
         uploadedAt: Date.now()

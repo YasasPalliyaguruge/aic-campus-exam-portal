@@ -81,7 +81,7 @@ export interface StudentSession {
   violations: Violation[];
   answers: Record<string, any>; // Changed to any to support arrays for multi-select
   draftAnswers?: Record<string, any>;
-  draftUploadedFiles?: { name: string; url: string; type: string; size: number; uploadedAt: number; }[];
+  draftUploadedFiles?: { name: string; url: string; storagePath?: string; type: string; size: number; uploadedAt: number; }[];
   draftSavedAt?: number;
   draftRevision?: number;
   score?: number;
@@ -93,7 +93,7 @@ export interface StudentSession {
   currentFrame?: string; // Current webcam frame for proctoring
   warnings?: string[]; // Warnings sent by proctor
   isFlagged?: boolean; // Marked for review by proctor
-  uploadedFiles?: { name: string; url: string; type: string; size: number; uploadedAt: number; }[];
+  uploadedFiles?: { name: string; url: string; storagePath?: string; type: string; size: number; uploadedAt: number; }[];
   extraTimeMinutes?: number; // Extra time granted to this student (admin can extend)
   isTerminated?: boolean; // True if session was terminated by admin - cannot be reopened
 }

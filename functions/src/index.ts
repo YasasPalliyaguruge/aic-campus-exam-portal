@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 
 const app = getApps()[0] || initializeApp();
@@ -29,6 +30,9 @@ interface Exam {
   scheduledEndMs?: number;
   assignedStudents?: string[];
   studentCredentials?: Record<string, string>;
+  allowsFileUpload?: boolean;
+  allowedFileTypes?: string[];
+  maxFileCount?: number;
 }
 
 interface AccessCodeLookup {
@@ -57,9 +61,29 @@ interface StudentSession {
   isTerminated?: boolean;
 }
 
+interface UploadedExamFile {
+  name: string;
+  url: string;
+  storagePath: string;
+  type: string;
+  size: number;
+  uploadedAt: number;
+}
+
 const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
 const STAFF_ROLES = new Set(['ADMIN', 'LECTURER']);
 const FINAL_SUBMISSION_GRACE_MS = 2 * 60 * 1000;
+const MAX_SUBMISSION_FILE_SIZE = 25 * 1024 * 1024;
+const ALLOWED_SUBMISSION_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+};
 
 const requireAuthUid = (auth: { uid?: string } | undefined) => {
   if (!auth?.uid) throw new HttpsError('unauthenticated', 'Please sign in again.');
@@ -84,6 +108,115 @@ const sessionIdFor = (studentId: string, examId: string) => `${studentId}_${exam
 
 const withId = <T>(snap: FirebaseFirestore.DocumentSnapshot): T => {
   return { id: snap.id, ...snap.data() } as T;
+};
+
+const sanitizeFileName = (value: unknown) => String(value || '')
+  .replace(/[\\/:*?"<>|]/g, '')
+  .trim()
+  .slice(0, 180);
+
+const extractStoragePathFromDownloadUrl = (value: unknown) => {
+  try {
+    const parsedUrl = new URL(String(value || ''));
+    if (parsedUrl.hostname !== 'firebasestorage.googleapis.com') return null;
+    const match = parsedUrl.pathname.match(/^\/v0\/b\/[^/]+\/o\/(.+)$/);
+    if (!match) return null;
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeStoragePath = (file: Record<string, unknown>) => {
+  const directPath = typeof file.storagePath === 'string' ? file.storagePath : '';
+  return directPath || extractStoragePathFromDownloadUrl(file.url) || '';
+};
+
+const getDefaultStorageBucketName = () => {
+  if (app.options.storageBucket) return app.options.storageBucket;
+  try {
+    const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG || '{}') as { storageBucket?: string };
+    if (firebaseConfig.storageBucket) return firebaseConfig.storageBucket;
+  } catch {
+    // Fall through to explicit error below.
+  }
+  throw new HttpsError('failed-precondition', 'Firebase Storage bucket is not configured for upload validation.');
+};
+
+const validateUploadedFiles = async (
+  filesInput: unknown,
+  exam: Exam,
+  session: StudentSession,
+  ownerUid: string,
+): Promise<UploadedExamFile[]> => {
+  const files = Array.isArray(filesInput) ? filesInput : [];
+  if (!files.length) return [];
+
+  if (!exam.allowsFileUpload) {
+    throw new HttpsError('failed-precondition', 'This exam does not allow file uploads.');
+  }
+
+  const maxFileCount = exam.maxFileCount || 1;
+  if (files.length > maxFileCount) {
+    throw new HttpsError('invalid-argument', `This exam allows a maximum of ${maxFileCount} uploaded file${maxFileCount === 1 ? '' : 's'}.`);
+  }
+
+  const allowedExtensions = new Set((exam.allowedFileTypes?.length ? exam.allowedFileTypes : ['.pdf', '.docx', '.pptx'])
+    .map(ext => ext.trim().toLowerCase())
+    .filter(Boolean));
+
+  const validatedFiles = await Promise.all(files.map(async (rawFile) => {
+    if (!rawFile || typeof rawFile !== 'object') {
+      throw new HttpsError('invalid-argument', 'Invalid uploaded file metadata.');
+    }
+
+    const file = rawFile as Record<string, unknown>;
+    const storagePath = normalizeStoragePath(file);
+    const expectedPrefix = `exam-submissions/${exam.id}/${session.studentId}/`;
+    if (!storagePath || !storagePath.startsWith(expectedPrefix)) {
+      throw new HttpsError('permission-denied', 'Uploaded file does not belong to this exam session.');
+    }
+
+    const storageBucket = getStorage(app).bucket(getDefaultStorageBucketName());
+    const [exists] = await storageBucket.file(storagePath).exists();
+    if (!exists) {
+      throw new HttpsError('not-found', 'Uploaded file was not found in Storage.');
+    }
+
+    const [metadata] = await storageBucket.file(storagePath).getMetadata();
+    const contentType = String(metadata.contentType || file.type || '');
+    const size = Number(metadata.size || file.size || 0);
+    const customMetadata = metadata.metadata || {};
+
+    if (!ALLOWED_SUBMISSION_CONTENT_TYPES.has(contentType) || size <= 0 || size > MAX_SUBMISSION_FILE_SIZE) {
+      throw new HttpsError('invalid-argument', 'Uploaded file type or size is not allowed.');
+    }
+
+    if (
+      customMetadata.ownerUid !== ownerUid ||
+      customMetadata.examId !== exam.id ||
+      customMetadata.studentId !== session.studentId
+    ) {
+      throw new HttpsError('permission-denied', 'Uploaded file ownership metadata is invalid.');
+    }
+
+    const safeName = sanitizeFileName(file.name || storagePath.split('/').pop());
+    const extension = safeName.includes('.') ? `.${safeName.split('.').pop()}`.toLowerCase() : CONTENT_TYPE_EXTENSIONS[contentType];
+    if (!allowedExtensions.has(extension) && !allowedExtensions.has(CONTENT_TYPE_EXTENSIONS[contentType])) {
+      throw new HttpsError('invalid-argument', 'Uploaded file type is not allowed for this exam.');
+    }
+
+    return {
+      name: safeName || storagePath.split('/').pop() || 'submission-file',
+      url: String(file.url || ''),
+      storagePath,
+      type: contentType,
+      size,
+      uploadedAt: Number(file.uploadedAt || Date.now()),
+    };
+  }));
+
+  return validatedFiles;
 };
 
 const getStartMs = (exam: Exam) => {
@@ -319,12 +452,13 @@ export const submitStudentSession = onCall(async (request) => {
     throw new HttpsError('failed-precondition', 'The submission window has closed.');
   }
   const wasReceivedAfterDeadline = now > effectiveEnd;
+  const uploadedFiles = await validateUploadedFiles(request.data?.uploadedFiles, exam, session, uid);
 
   const updates: Partial<StudentSession> = {
     status: 'SUBMITTED',
     submitTime: wasReceivedAfterDeadline ? effectiveEnd : now,
     answers: request.data?.answers || {},
-    uploadedFiles: request.data?.uploadedFiles || [],
+    uploadedFiles,
   };
   const persistedUpdates = {
     ...updates,
@@ -355,10 +489,11 @@ export const saveStudentDraft = onCall(async (request) => {
 
   const now = Date.now();
   assertWindowOpen(exam, now);
+  const uploadedFiles = await validateUploadedFiles(request.data?.uploadedFiles, exam, session, uid);
 
   const updates: Partial<StudentSession> = {
     draftAnswers: request.data?.answers || {},
-    draftUploadedFiles: request.data?.uploadedFiles || [],
+    draftUploadedFiles: uploadedFiles,
     draftSavedAt: now,
     draftRevision: Number(request.data?.revision || 0),
   };
