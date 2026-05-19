@@ -7,6 +7,7 @@ import { Card } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Badge } from '../ui/Badge';
+import { Modal, useModal } from '../ui/Modal';
 
 export const StudentRegistry = () => {
   const { users, programs, addStudent, deleteUser, refreshData, isLoading } = useApp();
@@ -14,6 +15,7 @@ export const StudentRegistry = () => {
   const [newStudent, setNewStudent] = useState({ name: '', email: '', programId: '', studentId: '' });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState({ name: '', email: '', programId: '', studentId: '' });
+  const { modalState, showModal, hideModal } = useModal();
   
   const students = users.filter(u => u.role === UserRole.STUDENT);
 
@@ -198,9 +200,15 @@ export const StudentRegistry = () => {
                             size="sm" 
                             className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                             onClick={() => {
-                              if (window.confirm('Are you sure you want to delete this student?')) {
-                                deleteUser(student.id);
-                              }
+                              showModal({
+                                title: 'Delete Student',
+                                message: 'Are you sure you want to delete this student?',
+                                type: 'delete',
+                                confirmText: 'Delete Student',
+                                cancelText: 'Cancel',
+                                showCancel: true,
+                                onConfirm: () => deleteUser(student.id),
+                              });
                             }}
                           >
                             <Trash2 size={16} />
@@ -215,6 +223,17 @@ export const StudentRegistry = () => {
           </table>
         </div>
       </Card>
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

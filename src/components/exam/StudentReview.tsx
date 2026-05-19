@@ -8,6 +8,7 @@ import { getServerTime } from '../../services/serverTime';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { Modal, useModal } from '../ui/Modal';
 
 export const StudentReview = () => {
   const { auth, sessions, exams, logout } = useApp();
@@ -15,6 +16,7 @@ export const StudentReview = () => {
   const [reviewData, setReviewData] = useState<{ session: any; exam: any } | null>(null);
   const [isReviewLoading, setIsReviewLoading] = useState(true);
   const [isReopening, setIsReopening] = useState(false);
+  const { modalState, showModal, hideModal } = useModal();
 
   useEffect(() => {
     if (!auth.isAuthenticated || auth.user?.role !== UserRole.STUDENT) return;
@@ -135,21 +137,32 @@ export const StudentReview = () => {
   const remainingMinutes = getRemainingTime();
 
   const handleContinueEditing = async () => {
-    if (!confirm('Are you sure you want to continue editing? You will be taken back to the exam.')) {
-      return;
-    }
-    
-    setIsReopening(true);
-    try {
-      await api.sessions.reopenSession(session.studentId, exam.id);
-      // Navigate back to active exam
-      navigate('/student/active');
-    } catch (error) {
-      console.error('Failed to reopen session:', error);
-      alert('Failed to reopen session. The exam window may have closed.');
-    } finally {
-      setIsReopening(false);
-    }
+    showModal({
+      title: 'Continue Editing?',
+      message: 'You will be taken back to the exam and can keep editing while the real exam window remains open.',
+      type: 'confirm',
+      confirmText: 'Continue Editing',
+      cancelText: 'Stay Here',
+      showCancel: true,
+      onConfirm: async () => {
+        setIsReopening(true);
+        try {
+          await api.sessions.reopenSession(session.studentId, exam.id);
+          navigate('/student/active');
+        } catch (error) {
+          console.error('Failed to reopen session:', error);
+          showModal({
+            title: 'Unable to Reopen',
+            message: 'Failed to reopen the session. The exam window may have closed.',
+            type: 'error',
+            confirmText: 'OK',
+            showCancel: false,
+          });
+        } finally {
+          setIsReopening(false);
+        }
+      },
+    });
   };
 
   const handleLogout = () => {
@@ -404,6 +417,17 @@ export const StudentReview = () => {
         )}
 
       </div>
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

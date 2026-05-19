@@ -6,10 +6,12 @@ import { Card } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Badge } from '../ui/Badge';
+import { Modal, useModal } from '../ui/Modal';
 
 export const AcademicManager = () => {
   const { programs, addProgram, deleteProgram, addModule, deleteModule, refreshData, isLoading } = useApp();
   const [activeTab, setActiveTab] = useState<'PROGRAMS' | 'MODULES'>('PROGRAMS');
+  const { modalState, showModal, hideModal } = useModal();
   
   const [newProgramName, setNewProgramName] = useState('');
   const [newModule, setNewModule] = useState({ name: '', code: '', programId: '' });
@@ -169,9 +171,15 @@ export const AcademicManager = () => {
                         size="sm" 
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                         onClick={() => {
-                          if (window.confirm('Are you sure you want to delete this program? All associated modules will also be deleted.')) {
-                            deleteProgram(prog.id);
-                          }
+                          showModal({
+                            title: 'Delete Program',
+                            message: 'Are you sure you want to delete this program? All associated modules will also be deleted.',
+                            type: 'delete',
+                            confirmText: 'Delete Program',
+                            cancelText: 'Cancel',
+                            showCancel: true,
+                            onConfirm: () => deleteProgram(prog.id),
+                          });
                         }}
                       >
                         <Trash2 size={16} />
@@ -231,9 +239,9 @@ export const AcademicManager = () => {
                 <p className="text-sm text-gray-500 mb-3">{mod.programName}</p>
                 {isEditing ? (
                   <div className="flex gap-2 justify-end">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="text-green-500 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
                       onClick={() => handleSaveEditModule(mod.programId, mod.id)}
                     >
@@ -258,14 +266,20 @@ export const AcademicManager = () => {
                     >
                       <Edit2 size={16} />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                       onClick={() => {
-                        if (window.confirm('Are you sure you want to delete this module?')) {
-                          deleteModule(mod.programId, mod.id);
-                        }
+                        showModal({
+                          title: 'Delete Module',
+                          message: 'Are you sure you want to delete this module?',
+                          type: 'delete',
+                          confirmText: 'Delete Module',
+                          cancelText: 'Cancel',
+                          showCancel: true,
+                          onConfirm: () => deleteModule(mod.programId, mod.id),
+                        });
                       }}
                     >
                       <Trash2 size={16} />
@@ -277,6 +291,17 @@ export const AcademicManager = () => {
           })}
         </div>
       )}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

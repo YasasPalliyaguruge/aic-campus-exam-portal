@@ -9,12 +9,22 @@ import { Select } from '../ui/Select';
 import { TextArea } from '../ui/TextArea';
 import { Badge } from '../ui/Badge';
 import { RichTextEditor } from '../ui/RichTextEditor';
+import { Modal, useModal } from '../ui/Modal';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../../firebase';
 import { buildScheduleFields, DEFAULT_EXAM_TIME_ZONE, EXAM_TIME_ZONES, toScheduleLocalInput } from '../../services/schedule';
 
+const MAX_REFERENCE_DOCUMENT_SIZE = 10 * 1024 * 1024;
+
+const sanitizeStorageFileName = (fileName: string) =>
+  fileName
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._-]/g, '')
+    .slice(0, 120) || 'case-study.pdf';
+
 export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, onCancel: () => void, onSuccess: () => void }) => {
   const { addExam, programs, users, isLoading } = useApp();
+  const { modalState, showModal, hideModal } = useModal();
   
   // Wizard State
   const [step, setStep] = useState(1); // 1: Draft, 2: Review, 3: Schedule & Assign, 4: Success
@@ -80,26 +90,63 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
 
   // File Upload Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
+    const input = e.target;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
       if (file.type !== 'application/pdf') {
-        alert('Please upload a PDF file.');
+        showModal({
+          title: 'PDF Required',
+          message: 'Please upload a PDF file for the case study or reference document.',
+          type: 'warning',
+          confirmText: 'OK',
+          showCancel: false,
+        });
+        input.value = '';
+        return;
+      }
+      if (file.size > MAX_REFERENCE_DOCUMENT_SIZE) {
+        showModal({
+          title: 'File Too Large',
+          message: 'Case study PDFs must be 10 MB or smaller.',
+          type: 'warning',
+          confirmText: 'OK',
+          showCancel: false,
+        });
+        input.value = '';
         return;
       }
       
       setIsUploading(true);
       try {
-        const storageRef = ref(storage, `exam-resources/${Date.now()}_${file.name}`);
+        const safeFileName = sanitizeStorageFileName(file.name);
+        const storageRef = ref(storage, `exam-resources/${Date.now()}_${safeFileName}`);
         const snapshot = await uploadBytes(storageRef, file);
         const url = await getDownloadURL(snapshot.ref);
         
         setNewExam(prev => ({ ...prev, referenceDocumentUrl: url }));
+        showModal({
+          title: 'Document Attached',
+          message: 'The case study PDF was uploaded successfully.',
+          type: 'success',
+          confirmText: 'OK',
+          showCancel: false,
+        });
         console.log('✅ File uploaded:', url);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Upload failed:', error);
-        alert('Failed to upload file. Please try again.');
+        const isPermissionError = error?.code === 'storage/unauthorized';
+        showModal({
+          title: 'Upload Failed',
+          message: isPermissionError
+            ? 'Firebase Storage rejected the upload. Please make sure you are signed in as staff and try again.'
+            : 'Failed to upload the file. Please check your connection and try again.',
+          type: 'error',
+          confirmText: 'OK',
+          showCancel: false,
+        });
       } finally {
         setIsUploading(false);
+        input.value = '';
       }
     }
   };
@@ -145,15 +192,33 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
 
   const handleAddManual = () => {
     if (!manualQText.trim()) {
-      alert("Please enter the question text.");
+      showModal({
+        title: 'Question Text Required',
+        message: 'Please enter the question text before adding it to the exam.',
+        type: 'warning',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
     if ((manualQType === QuestionType.MCQ || manualQType === QuestionType.MULTI_SELECT) && currentOptions.length < 2) {
-      alert("Please add at least 2 options.");
+      showModal({
+        title: 'More Options Needed',
+        message: 'Please add at least two answer options for this question type.',
+        type: 'warning',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
     if ((manualQType !== QuestionType.ESSAY && manualQType !== QuestionType.SHORT_ANSWER) && correctAnswers.length === 0) {
-      alert("Please select a correct answer.");
+      showModal({
+        title: 'Correct Answer Required',
+        message: 'Please select the correct answer before adding this question.',
+        type: 'warning',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
 
@@ -259,7 +324,13 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
 
   const handlePublish = async () => {
     if (!newExam.scheduledStart || !newExam.scheduledEnd || newExam.assignedStudents?.length === 0) {
-      alert("Please schedule the exam and assign at least one student.");
+      showModal({
+        title: 'Schedule Incomplete',
+        message: 'Please schedule the exam and assign at least one student before publishing.',
+        type: 'warning',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
 
@@ -277,7 +348,13 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
         newExam.scheduleTimeZone || DEFAULT_EXAM_TIME_ZONE,
       );
     } catch (error: any) {
-      alert(error.message || 'Please enter a valid exam schedule.');
+      showModal({
+        title: 'Invalid Schedule',
+        message: error.message || 'Please enter a valid exam schedule.',
+        type: 'warning',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
     const scheduledStartUTC = scheduleFields.scheduledStart;
@@ -421,7 +498,7 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
                   <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-6 text-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative">
                     <input 
                       type="file" 
-                      accept="application/pdf"
+                      accept=".pdf,application/pdf"
                       onChange={handleFileUpload}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       disabled={isUploading}
@@ -776,6 +853,17 @@ export const ExamWizard = ({ exam, onCancel, onSuccess }: { exam?: Exam | null, 
           <Button size="lg" onClick={onSuccess}>Back to Exam List</Button>
         </div>
       )}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

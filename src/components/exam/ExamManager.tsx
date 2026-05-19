@@ -5,6 +5,7 @@ import { useApp } from '../../contexts/AppContext';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { Modal, useModal } from '../ui/Modal';
 import { ExamWizard } from './ExamWizard';
 import { formatExamSchedule } from '../../services/schedule';
 
@@ -14,6 +15,7 @@ export const ExamManager = () => {
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [viewKeysExam, setViewKeysExam] = useState<Exam | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const { modalState, showModal, hideModal } = useModal();
 
   const handleCopyList = () => {
     if (!viewKeysExam) return;
@@ -82,10 +84,18 @@ export const ExamManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure? This cannot be undone.')) {
-      await deleteExam(id);
-    }
-  }
+    showModal({
+      title: 'Delete Exam',
+      message: 'Are you sure you want to delete this exam? This cannot be undone.',
+      type: 'delete',
+      confirmText: 'Delete Exam',
+      cancelText: 'Cancel',
+      showCancel: true,
+      onConfirm: async () => {
+        await deleteExam(id);
+      },
+    });
+  };
 
   if (view === 'LIST') {
     return (
@@ -196,6 +206,17 @@ export const ExamManager = () => {
             </div>
           </div>
         )}
+        <Modal
+          isOpen={modalState.isOpen}
+          onClose={hideModal}
+          onConfirm={modalState.onConfirm}
+          title={modalState.title}
+          message={modalState.message}
+          type={modalState.type}
+          confirmText={modalState.confirmText}
+          cancelText={modalState.cancelText}
+          showCancel={modalState.showCancel}
+        />
       </div>
     );
   }
