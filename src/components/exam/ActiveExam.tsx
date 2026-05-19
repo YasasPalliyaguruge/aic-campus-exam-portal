@@ -117,6 +117,14 @@ export const ActiveExam = () => {
     }
   };
 
+  const clearQuestionFlags = (studentId: string, examId: string) => {
+    try {
+      localStorage.removeItem(getFlagStorageKey(studentId, examId));
+    } catch (error) {
+      console.warn('Failed to clear question flags:', error);
+    }
+  };
+
   const readLocalDraft = (studentId: string, examId: string): LocalExamDraft | null => {
     try {
       const raw = localStorage.getItem(getDraftStorageKey(studentId, examId));
@@ -203,6 +211,7 @@ export const ActiveExam = () => {
       console.log(`Draft saved to cloud (${reason}).`);
     } catch (error) {
       pendingCloudSaveRef.current = true;
+      lastCloudSaveAtRef.current = Date.now();
       const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
       setDraftSaveState(prev => ({ ...prev, phase: currentlyOnline ? 'error' : 'offline' }));
       console.warn(`Draft cloud save failed (${reason}); local draft is still preserved.`, error);
@@ -826,6 +835,7 @@ export const ActiveExam = () => {
       await saveDraftToCloud('pre-submit');
       await submitExamSession(stuId, exId, finalAnswers, finalFiles);
       clearLocalDraft(stuId, exId);
+      clearQuestionFlags(stuId, exId);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       navigate('/student/completed');
     } catch(e) {
@@ -849,8 +859,9 @@ export const ActiveExam = () => {
        const answeredQuestions = activeExamData.exam.questions.filter(q => {
          const ans = finalAnswers[q.id];
          return ans !== undefined && ans !== '' && (Array.isArray(ans) ? ans.length > 0 : true);
-       }).length;
-       const unansweredQuestions = totalQuestions - answeredQuestions;
+        }).length;
+        const unansweredQuestions = totalQuestions - answeredQuestions;
+        const flaggedCount = activeExamData.exam.questions.filter(q => flaggedQuestionIds.includes(q.id)).length;
        
        // Show beautiful modal instead of native confirm
        showModal({
@@ -858,15 +869,20 @@ export const ActiveExam = () => {
          message: (
            <div className="space-y-3">
              <p>You have answered <span className="font-bold text-violet-600">{answeredQuestions}</span> out of <span className="font-bold">{totalQuestions}</span> questions.</p>
-             {unansweredQuestions > 0 && (
-               <p className="text-amber-600 dark:text-amber-400 font-medium">
-                 ⚠️ {unansweredQuestions} question(s) are still unanswered!
-               </p>
-             )}
-             <p className="mt-4 font-medium">Are you sure you want to submit?</p>
-           </div>
-         ),
-         type: unansweredQuestions > 0 ? 'warning' : 'confirm',
+              {unansweredQuestions > 0 && (
+                <p className="text-amber-600 dark:text-amber-400 font-medium">
+                  ⚠️ {unansweredQuestions} unanswered {unansweredQuestions === 1 ? 'question is' : 'questions are'} still remaining.
+                </p>
+              )}
+              {flaggedCount > 0 && (
+                <p className="text-amber-600 dark:text-amber-400 font-medium">
+                  {flaggedCount} flagged {flaggedCount === 1 ? 'question is' : 'questions are'} marked for review.
+                </p>
+              )}
+              <p className="mt-4 font-medium">Are you sure you want to submit?</p>
+            </div>
+          ),
+          type: unansweredQuestions > 0 || flaggedCount > 0 ? 'warning' : 'confirm',
          confirmText: 'Submit Exam',
          cancelText: 'Continue Editing',
          showCancel: true,
@@ -883,6 +899,7 @@ export const ActiveExam = () => {
        await saveDraftToCloud('pre-submit');
        await submitExamSession(stuId, exId, finalAnswers, finalFiles);
        clearLocalDraft(stuId, exId);
+       clearQuestionFlags(stuId, exId);
        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
        navigate('/student/completed');
      } catch(e) {
