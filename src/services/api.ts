@@ -44,32 +44,33 @@ export const api = {
         try {
           if (role === 'STAFF') {
             const userCredential = await signInWithEmailAndPassword(auth, idOrEmail, code || '');
+            const claimResult = await callFunction<void, { role: UserRole; serverNowMs: number }>('syncStaffClaims');
+            updateCachedServerTime(claimResult.serverNowMs);
+            await userCredential.user.getIdToken(true);
+
             const userDocRef = doc(db, 'users', userCredential.user.uid);
 
             try {
               const userDoc = await getDoc(userDocRef);
 
               if (!userDoc.exists()) {
-                const newProfile: User = {
-                  id: userCredential.user.uid,
-                  name: 'Admin User',
-                  email: idOrEmail,
-                  role: UserRole.ADMIN,
-                  programId: 'admin_prog'
-                };
-                await setDoc(userDocRef, newProfile);
-                return { user: newProfile, activeExamId: '' };
+                throw new Error('This account is not registered as staff.');
               }
 
-              return { user: userDoc.data() as User, activeExamId: '' };
+              const profile = userDoc.data() as User;
+              if (profile.role !== UserRole.ADMIN && profile.role !== UserRole.LECTURER) {
+                throw new Error('This account is not authorized for staff access.');
+              }
+
+              return { user: profile, activeExamId: '' };
             } catch (firestoreError: any) {
               if (firestoreError.code === 'unavailable' || firestoreError.message?.includes('offline')) {
                 throw new Error('Firestore Database is not enabled. Please enable Firestore in Firebase Console.');
               }
               if (firestoreError.code === 'permission-denied') {
-                throw new Error('Permission denied. Please update Firestore Security Rules.');
+                throw new Error('This account is not authorized for staff access.');
               }
-              throw new Error(`Firestore Error: ${firestoreError.message}`);
+              throw firestoreError;
             }
           }
 
@@ -124,6 +125,9 @@ export const api = {
           if (error.code === 'auth/invalid-credential') {
             throw new Error('Invalid credentials. Please check your email and password.');
           }
+          if (error.code === 'functions/permission-denied' || error.code === 'permission-denied') {
+            throw new Error('This account is not registered or authorized as staff.');
+          }
 
           throw new Error(error.message || 'Login failed. Please try again.');
         }
@@ -132,14 +136,18 @@ export const api = {
       throw new Error('Login failed after multiple attempts. Please try again later.');
     },
     register: async (email: string, pass: string, name: string, role: UserRole) => {
+      if (role !== UserRole.STUDENT) {
+        throw new Error('Staff accounts must be provisioned by an administrator.');
+      }
+
       const { createUserWithEmailAndPassword } = await import('firebase/auth');
       const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
       const newUser: User = {
         id: userCredential.user.uid,
         name,
         email,
-        role,
-        studentId: role === UserRole.STUDENT ? `ST_${Date.now()}` : undefined,
+        role: UserRole.STUDENT,
+        studentId: `ST_${Date.now()}`,
         programId: 'prog_001'
       };
       await setDoc(doc(db, 'users', newUser.id), newUser);

@@ -1,4 +1,5 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 
@@ -57,10 +58,25 @@ interface StudentSession {
 }
 
 const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
+const STAFF_ROLES = new Set(['ADMIN', 'LECTURER']);
 
 const requireAuthUid = (auth: { uid?: string } | undefined) => {
   if (!auth?.uid) throw new HttpsError('unauthenticated', 'Please sign in again.');
   return auth.uid;
+};
+
+const assertStaffProfile = async (uid: string) => {
+  const userSnap = await db.collection('users').doc(uid).get();
+  if (!userSnap.exists) {
+    throw new HttpsError('permission-denied', 'This account is not registered as staff.');
+  }
+
+  const user = withId<User>(userSnap);
+  if (!STAFF_ROLES.has(user.role)) {
+    throw new HttpsError('permission-denied', 'This account is not authorized for staff access.');
+  }
+
+  return user;
 };
 
 const sessionIdFor = (studentId: string, examId: string) => `${studentId}_${examId}`;
@@ -166,6 +182,21 @@ const responseFor = (exam: Exam, session: StudentSession, user?: User) => {
 
 export const getTrustedTime = onCall(() => {
   return { serverNowMs: Date.now() };
+});
+
+export const syncStaffClaims = onCall(async (request) => {
+  const uid = requireAuthUid(request.auth);
+  const user = await assertStaffProfile(uid);
+  const userRecord = await getAuth(app).getUser(uid);
+  await getAuth(app).setCustomUserClaims(uid, {
+    ...(userRecord.customClaims || {}),
+    role: user.role,
+  });
+
+  return {
+    role: user.role,
+    serverNowMs: Date.now(),
+  };
 });
 
 export const validateStudentAccess = onCall(async (request) => {
