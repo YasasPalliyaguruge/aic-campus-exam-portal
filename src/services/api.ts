@@ -155,6 +155,13 @@ export const api = {
     },
     logout: async () => {
       await signOut(auth);
+    },
+    syncStaffClaims: async () => {
+      if (!auth.currentUser || auth.currentUser.isAnonymous) return null;
+      const claimResult = await callFunction<void, { role: UserRole; serverNowMs: number }>('syncStaffClaims');
+      updateCachedServerTime(claimResult.serverNowMs);
+      await auth.currentUser.getIdToken(true);
+      return claimResult;
     }
   },
 

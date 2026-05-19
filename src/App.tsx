@@ -81,6 +81,7 @@ const App = () => {
               console.log('✅ Firebase session is valid, restoring app state');
               setAuth(parsedAuth);
               if (parsedAuth.user?.role !== UserRole.STUDENT) {
+                await api.auth.syncStaffClaims();
                 await refreshData();
               }
             } else {
