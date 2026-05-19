@@ -16,7 +16,6 @@ const firebaseConfig = {
 // Debug: Check if config is loaded
 if (!firebaseConfig.apiKey) {
   console.error("Firebase API Key is missing! Check your .env.local file.");
-  alert("Critical Error: Firebase Configuration Missing. Please check the console and restart the server.");
 }
 
 // Initialize Firebase

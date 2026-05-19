@@ -981,12 +981,21 @@ export const ActiveExam = () => {
   };
 
   const removeFile = async (index: number) => {
-    if (!confirm("Are you sure you want to remove this file?")) return;
-    setUploadedFiles(prev => {
-      const nextFiles = prev.filter((_, i) => i !== index);
-      uploadedFilesRef.current = nextFiles;
-      persistDraft(answersRef.current, nextFiles, true);
-      return nextFiles;
+    showModal({
+      title: 'Remove File',
+      message: 'Are you sure you want to remove this uploaded file?',
+      type: 'delete',
+      confirmText: 'Remove File',
+      cancelText: 'Cancel',
+      showCancel: true,
+      onConfirm: () => {
+        setUploadedFiles(prev => {
+          const nextFiles = prev.filter((_, i) => i !== index);
+          uploadedFilesRef.current = nextFiles;
+          persistDraft(answersRef.current, nextFiles, true);
+          return nextFiles;
+        });
+      },
     });
   };
 

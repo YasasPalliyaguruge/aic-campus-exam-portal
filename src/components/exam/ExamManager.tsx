@@ -153,8 +153,8 @@ export const ExamManager = () => {
         </Card>
 
         {viewKeysExam && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-white/80 dark:border-gray-800/80 backdrop-blur-xl animate-in zoom-in-95 fade-in duration-200">
               <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">Access Credentials</h3>
                 <button onClick={() => setViewKeysExam(null)} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"><X size={24} /></button>

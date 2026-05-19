@@ -7,6 +7,7 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Modal, useModal } from '../ui/Modal';
+import { Input } from '../ui/Input';
 
 export const ProctorView = () => {
   const { users, exams, sessions } = useApp();
@@ -15,9 +16,55 @@ export const ProctorView = () => {
 
   const activeSessions = sessions.filter(s => s.status === 'IN_PROGRESS');
 
+  const showFollowUpModal = (options: Parameters<typeof showModal>[0]) => {
+    setTimeout(() => showModal(options), 0);
+  };
+
+  const requestProctorInput = ({
+    title,
+    description,
+    placeholder,
+    inputType = 'text',
+    confirmText,
+    onSubmit,
+  }: {
+    title: string;
+    description: string;
+    placeholder: string;
+    inputType?: 'text' | 'number';
+    confirmText: string;
+    onSubmit: (value: string) => void;
+  }) => {
+    const inputId = `proctor-input-${Date.now()}`;
+
+    showModal({
+      title,
+      message: (
+        <div className="space-y-4 text-left">
+          <p className="text-sm text-gray-600 dark:text-gray-400">{description}</p>
+          <Input
+            id={inputId}
+            type={inputType}
+            min={inputType === 'number' ? 1 : undefined}
+            placeholder={placeholder}
+            autoFocus
+          />
+        </div>
+      ),
+      type: 'confirm',
+      confirmText,
+      cancelText: 'Cancel',
+      showCancel: true,
+      onConfirm: () => {
+        const value = (document.getElementById(inputId) as HTMLInputElement | null)?.value.trim() || '';
+        onSubmit(value);
+      },
+    });
+  };
+
   const handleTerminate = async (sessionId: string) => {
     showModal({
-      title: '⚠️ Terminate Session',
+      title: 'Terminate Session',
       message: (
         <div className="space-y-2">
           <p>Are you sure you want to <strong className="text-red-600">TERMINATE</strong> this exam session?</p>
@@ -112,18 +159,24 @@ export const ProctorView = () => {
                    className="w-full text-xs py-1 h-auto"
                    onClick={(e) => {
                      e.stopPropagation();
-                     const msg = prompt("Enter warning message for student:");
-                     if (msg) {
-                       const sessionId = `${session.studentId}_${session.examId}`;
-                       api.sessions.sendWarning(sessionId, msg);
-                       showModal({
-                         title: '✅ Warning Sent',
-                         message: 'The warning has been sent to the student.',
-                         type: 'success',
-                         showCancel: false,
-                         confirmText: 'OK',
-                       });
-                     }
+                     requestProctorInput({
+                       title: 'Send Warning',
+                       description: 'Enter the warning message that should appear for this student.',
+                       placeholder: 'Warning message',
+                       confirmText: 'Send Warning',
+                       onSubmit: (msg) => {
+                         if (!msg) return;
+                         const sessionId = `${session.studentId}_${session.examId}`;
+                         api.sessions.sendWarning(sessionId, msg);
+                         showFollowUpModal({
+                           title: 'Warning Sent',
+                           message: 'The warning has been sent to the student.',
+                           type: 'success',
+                           showCancel: false,
+                           confirmText: 'OK',
+                         });
+                       },
+                     });
                    }}
                  >
                    Send Warning
@@ -149,7 +202,7 @@ export const ProctorView = () => {
         const selectedSession = sessions.find(s => `${s.studentId}_${s.examId}` === selectedSessionId);
         return selectedSession && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-white/80 dark:border-gray-800/80 backdrop-blur-xl animate-in zoom-in-95 fade-in duration-200">
             {/* Modal Header */}
             <div className="p-4 md:p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
               <div className="flex items-center gap-4">
@@ -219,18 +272,24 @@ export const ProctorView = () => {
                        className="w-full" 
                        variant="secondary"
                        onClick={() => {
-                         const msg = prompt("Enter warning message:");
-                         if (msg) {
-                           const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
-                           api.sessions.sendWarning(sessionId, msg);
-                           showModal({
-                             title: '✅ Warning Sent',
-                             message: 'The warning has been sent to the student.',
-                             type: 'success',
-                             showCancel: false,
-                             confirmText: 'OK',
-                           });
-                         }
+                         requestProctorInput({
+                           title: 'Send Warning',
+                           description: 'Enter the warning message that should appear for this student.',
+                           placeholder: 'Warning message',
+                           confirmText: 'Send Warning',
+                           onSubmit: (msg) => {
+                             if (!msg) return;
+                             const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
+                             api.sessions.sendWarning(sessionId, msg);
+                             showFollowUpModal({
+                               title: 'Warning Sent',
+                               message: 'The warning has been sent to the student.',
+                               type: 'success',
+                               showCancel: false,
+                               confirmText: 'OK',
+                             });
+                           },
+                         });
                        }}
                     >
                       Send Warning Message
@@ -239,27 +298,35 @@ export const ProctorView = () => {
                     <Button 
                        className="w-full bg-blue-600 hover:bg-blue-700 text-white" 
                        onClick={() => {
-                         const minutes = prompt("Enter extra minutes to grant (e.g. 5, 10, 15):");
-                         if (minutes && !isNaN(Number(minutes)) && Number(minutes) > 0) {
-                           const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
-                           api.sessions.extendTime(sessionId, Number(minutes));
-                           showModal({
-                             title: '🎁 Time Extended',
-                             message: `Granted ${minutes} extra minutes to this student!`,
-                             type: 'success',
-                             showCancel: false,
-                             confirmText: 'OK',
-                           });
-                         } else if (minutes) {
-                           showModal({
-                             title: 'Invalid Input',
-                             message: 'Please enter a valid number of minutes.',
-                             type: 'error',
-                             showCancel: false,
-                             confirmText: 'OK',
-                           });
-                         }
-                       }}
+                         requestProctorInput({
+                           title: 'Extend Time',
+                           description: 'Enter the number of extra minutes to grant to this student.',
+                           placeholder: 'e.g. 5, 10, 15',
+                           inputType: 'number',
+                           confirmText: 'Grant Time',
+                           onSubmit: (minutes) => {
+                             if (minutes && !isNaN(Number(minutes)) && Number(minutes) > 0) {
+                               const sessionId = `${selectedSession.studentId}_${selectedSession.examId}`;
+                               api.sessions.extendTime(sessionId, Number(minutes));
+                               showFollowUpModal({
+                                 title: 'Time Extended',
+                                 message: `Granted ${minutes} extra minutes to this student.`,
+                                 type: 'success',
+                                 showCancel: false,
+                                 confirmText: 'OK',
+                               });
+                              } else if (minutes) {
+                                showFollowUpModal({
+                                  title: 'Invalid Input',
+                                  message: 'Please enter a valid number of minutes.',
+                                  type: 'error',
+                                  showCancel: false,
+                                  confirmText: 'OK',
+                                });
+                              }
+                            },
+                          });
+                        }}
                     >
                       <Timer size={18} /> Extend Time
                     </Button>

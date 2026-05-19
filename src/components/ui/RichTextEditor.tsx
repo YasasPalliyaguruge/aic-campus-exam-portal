@@ -260,7 +260,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
   const ModalPortal = ({ children, isOpen }: { children: React.ReactNode; isOpen: boolean }) => {
     if (!isOpen) return null;
     return createPortal(
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
         {children}
       </div>,
       document.body
@@ -346,7 +346,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
 
       {/* Table Size Modal - Portal to body */}
       <ModalPortal isOpen={showTableModal}>
-        <div className="bg-white/95 dark:bg-gray-800/95 rounded-3xl shadow-2xl p-6 w-80 border border-gray-200/80 dark:border-gray-700/80 animate-in zoom-in-95 fade-in duration-200 backdrop-blur-xl">
+        <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 p-6 w-80 border border-white/80 dark:border-gray-800/80 animate-in zoom-in-95 fade-in duration-200 backdrop-blur-xl">
           <div className="flex justify-between items-center mb-5">
             <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
               <Table size={20} className="text-violet-500" /> Insert Table
@@ -442,7 +442,7 @@ export const RichTextEditor = ({ value, onChange, className = '', disablePaste =
 
       {/* Link Modal - Portal to body */}
       <ModalPortal isOpen={showLinkModal}>
-        <div className="bg-white/95 dark:bg-gray-800/95 rounded-3xl shadow-2xl p-6 w-96 border border-gray-200/80 dark:border-gray-700/80 animate-in zoom-in-95 fade-in duration-200 backdrop-blur-xl">
+        <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 p-6 w-96 border border-white/80 dark:border-gray-800/80 animate-in zoom-in-95 fade-in duration-200 backdrop-blur-xl">
           <div className="flex justify-between items-center mb-5">
             <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
               <Link size={20} className="text-violet-500" /> Insert Link

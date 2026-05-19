@@ -3,10 +3,12 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
+import { Modal, useModal } from './ui/Modal';
 
 export const DatabaseDebugger = () => {
   const [data, setData] = useState<any>({});
   const [loading, setLoading] = useState(false);
+  const { modalState, showModal, hideModal } = useModal();
 
   const fetchData = async () => {
     setLoading(true);
@@ -26,7 +28,13 @@ export const DatabaseDebugger = () => {
       console.log('📊 Database contents:', result);
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      alert(`Error: ${error.message}`);
+      showModal({
+        title: 'Database Error',
+        message: `Error: ${error.message}`,
+        type: 'error',
+        confirmText: 'OK',
+        showCancel: false,
+      });
     } finally {
       setLoading(false);
     }
@@ -63,6 +71,17 @@ export const DatabaseDebugger = () => {
           <p>No data found. Click refresh to load database contents.</p>
         </div>
       )}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };

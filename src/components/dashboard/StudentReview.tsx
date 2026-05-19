@@ -5,11 +5,13 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Exam, StudentSession, User } from '../../types';
+import { Modal, useModal } from '../ui/Modal';
 
 export const StudentReview = () => {
   const { exams, sessions, users, programs } = useApp();
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const { modalState, showModal, hideModal } = useModal();
 
   // Filter submitted/completed sessions
   const completedSessions = sessions.filter(s => s.status === 'SUBMITTED' || s.status === 'COMPLETED');
@@ -83,14 +85,26 @@ export const StudentReview = () => {
     
     if (!selectedSession || !selectedExam) {
       console.error('Missing data for PDF export:', { selectedSession, selectedExam, selectedStudent });
-      alert('Unable to export PDF. Missing session or exam data. Please refresh the page and try again.');
+      showModal({
+        title: 'Unable to Export',
+        message: 'Missing session or exam data. Please refresh the page and try again.',
+        type: 'error',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
 
     // Simple HTML to PDF conversion
     const printWindow = window.open('', '_blank', 'width=900,height=700');
     if (!printWindow) {
-      alert('Pop-up blocked. Please allow pop-ups for PDF export and try again.');
+      showModal({
+        title: 'Pop-up Blocked',
+        message: 'Please allow pop-ups for PDF export and try again.',
+        type: 'warning',
+        confirmText: 'OK',
+        showCancel: false,
+      });
       return;
     }
 
@@ -859,6 +873,17 @@ export const StudentReview = () => {
           </Card>
         </div>
       )}
+      <Modal
+        isOpen={modalState.isOpen}
+        onClose={hideModal}
+        onConfirm={modalState.onConfirm}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        cancelText={modalState.cancelText}
+        showCancel={modalState.showCancel}
+      />
     </div>
   );
 };
