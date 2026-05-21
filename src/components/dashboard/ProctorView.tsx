@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer } from 'lucide-react';
+import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer, Camera, MonitorUp } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
 import { getServerTime } from '../../services/serverTime';
@@ -18,6 +18,38 @@ export const ProctorView = () => {
 
   const showFollowUpModal = (options: Parameters<typeof showModal>[0]) => {
     setTimeout(() => showModal(options), 0);
+  };
+
+  const getScreenCaptureLabel = (status?: string) => {
+    if (!status) return 'No screenshot requested';
+    if (status === 'CAPTURED') return 'Screenshot captured';
+    if (status === 'REQUESTED') return 'Waiting for student browser';
+    if (status === 'CAPTURING') return 'Capturing screen';
+    if (status === 'FAILED') return 'Capture failed';
+    if (status === 'DENIED') return 'Permission denied';
+    if (status === 'STOPPED') return 'Screen share stopped';
+    return status.replace(/_/g, ' ');
+  };
+
+  const handleRequestScreenCapture = async (sessionId: string) => {
+    try {
+      await api.sessions.requestScreenCapture(sessionId);
+      showModal({
+        title: 'Screenshot Requested',
+        message: 'The request was sent to the student browser. If they have shared their entire screen, the image will appear here shortly.',
+        type: 'success',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+    } catch (error: any) {
+      showModal({
+        title: 'Request Failed',
+        message: error?.message || 'Could not request a screenshot from this student.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+    }
   };
 
   const requestProctorInput = ({
@@ -181,6 +213,17 @@ export const ProctorView = () => {
                  >
                    Send Warning
                  </Button>
+                 <Button
+                   size="sm"
+                   variant="primary"
+                   className="w-full text-xs py-1 h-auto mt-2"
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     handleRequestScreenCapture(`${session.studentId}_${session.examId}`);
+                   }}
+                 >
+                   <Camera size={14} /> Capture Screen
+                 </Button>
               </div>
             </Card>
           );
@@ -239,6 +282,48 @@ export const ProctorView = () => {
                       LIVE
                     </div>
                   </div>
+
+                  <Card noPadding className="overflow-hidden border-gray-200 dark:border-gray-800">
+                    <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 p-4">
+                      <div>
+                        <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                          <MonitorUp size={18} className="text-violet-500" /> On-Demand Screen Capture
+                        </h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {getScreenCaptureLabel(selectedSession.screenCapture?.status)}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleRequestScreenCapture(`${selectedSession.studentId}_${selectedSession.examId}`)}
+                        loading={selectedSession.screenCapture?.status === 'REQUESTED' || selectedSession.screenCapture?.status === 'CAPTURING'}
+                      >
+                        <Camera size={16} />
+                        Capture Now
+                      </Button>
+                    </div>
+                    <div className="bg-gray-950">
+                      {selectedSession.screenCapture?.imageUrl ? (
+                        <a href={selectedSession.screenCapture.imageUrl} target="_blank" rel="noreferrer" className="block">
+                          <img
+                            src={selectedSession.screenCapture.imageUrl}
+                            alt="Latest student screen capture"
+                            className="w-full aspect-video object-contain bg-black"
+                          />
+                        </a>
+                      ) : (
+                        <div className="aspect-video flex flex-col items-center justify-center text-gray-500 text-sm">
+                          <MonitorUp size={36} className="mb-3 opacity-70" />
+                          <span>No screen screenshot captured yet.</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/70">
+                      {selectedSession.screenCapture?.capturedAt
+                        ? `Captured ${new Date(selectedSession.screenCapture.capturedAt).toLocaleString()}`
+                        : selectedSession.screenCapture?.error || 'Ask the student to share their Entire Screen before requesting a capture.'}
+                    </div>
+                  </Card>
 
                   <div className="grid grid-cols-2 gap-4">
                      <Card noPadding className="p-4 bg-gray-50 dark:bg-gray-800/50 border-0">

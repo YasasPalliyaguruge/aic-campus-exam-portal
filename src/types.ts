@@ -92,11 +92,25 @@ export interface StudentSession {
   gradedAt?: number; // Timestamp of grading
   graderNotes?: Record<string, string>; // Per-question feedback
   currentFrame?: string; // Current webcam frame for proctoring
+  screenCapture?: ScreenCaptureState; // Latest on-demand full-screen capture request/result
   warnings?: string[]; // Warnings sent by proctor
   isFlagged?: boolean; // Marked for review by proctor
   uploadedFiles?: { name: string; url: string; storagePath?: string; type: string; size: number; uploadedAt: number; }[];
   extraTimeMinutes?: number; // Extra time granted to this student (admin can extend)
   isTerminated?: boolean; // True if session was terminated by admin - cannot be reopened
+}
+
+export interface ScreenCaptureState {
+  requestId?: string;
+  requestedAt?: number;
+  requestedBy?: string;
+  status: 'REQUESTED' | 'CAPTURING' | 'CAPTURED' | 'FAILED' | 'DENIED' | 'STOPPED';
+  imageUrl?: string;
+  storagePath?: string;
+  capturedAt?: number;
+  updatedAt: number;
+  error?: string;
+  displaySurface?: string;
 }
 
 export interface Violation {

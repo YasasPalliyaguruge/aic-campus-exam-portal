@@ -38,6 +38,29 @@ service cloud.firestore {
         && request.resource.data.currentFrame.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
     }
 
+    function isOwnScreenCaptureUpdate() {
+      return ownsSession()
+        && resource.data.status == 'IN_PROGRESS'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['screenCapture'])
+        && resource.data.screenCapture is map
+        && request.resource.data.screenCapture is map
+        && request.resource.data.screenCapture.requestId == resource.data.screenCapture.requestId
+        && request.resource.data.screenCapture.keys().hasOnly([
+          'requestId',
+          'requestedAt',
+          'requestedBy',
+          'status',
+          'imageUrl',
+          'storagePath',
+          'capturedAt',
+          'updatedAt',
+          'error',
+          'displaySurface'
+        ])
+        && request.resource.data.screenCapture.status in ['CAPTURING', 'CAPTURED', 'FAILED', 'DENIED', 'STOPPED']
+        && request.resource.data.screenCapture.updatedAt is number;
+    }
+
     match /users/{userId} {
       allow read: if isStaff();
       allow create: if isStaff() && isStudentProfile();
@@ -59,7 +82,7 @@ service cloud.firestore {
     match /sessions/{sessionId} {
       allow read: if isStaff() || ownsSession();
       allow create: if isStaff();
-      allow update: if isStaff() || isOwnFrameUpdate();
+      allow update: if isStaff() || isOwnFrameUpdate() || isOwnScreenCaptureUpdate();
       allow delete: if isStaff();
     }
 

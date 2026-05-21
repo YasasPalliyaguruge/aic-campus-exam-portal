@@ -5,7 +5,7 @@ import {
 import { signInWithEmailAndPassword, signOut, signInAnonymously } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions } from '../firebase';
-import { User, Exam, StudentSession, Violation, UserRole, Program, Module } from '../types';
+import { User, Exam, StudentSession, Violation, UserRole, Program, Module, ScreenCaptureState } from '../types';
 import { getServerTime, updateCachedServerTime } from './serverTime';
 
 const convertSnapshot = <T>(snapshot: any) => {
@@ -428,6 +428,24 @@ export const api = {
       const sessionId = `${studentId}_${examId}`;
       const sessionRef = doc(db, 'sessions', sessionId);
       await updateDoc(sessionRef, { currentFrame: frameData });
+    },
+    requestScreenCapture: async (sessionId: string) => {
+      const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const now = getServerTime();
+      await updateDoc(doc(db, 'sessions', sessionId), {
+        screenCapture: {
+          requestId,
+          requestedAt: now,
+          requestedBy: auth.currentUser?.uid || 'staff',
+          status: 'REQUESTED',
+          updatedAt: now,
+        } satisfies ScreenCaptureState,
+      });
+      return requestId;
+    },
+    updateScreenCapture: async (studentId: string, examId: string, screenCapture: ScreenCaptureState) => {
+      const sessionId = `${studentId}_${examId}`;
+      await updateDoc(doc(db, 'sessions', sessionId), { screenCapture });
     },
     subscribeToSession: (studentId: string, examId: string, callback: (session: StudentSession | null) => void) => {
       const sessionId = `${studentId}_${examId}`;

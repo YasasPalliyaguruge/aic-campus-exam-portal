@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop, Cloud, CloudOff, Save, Flag } from 'lucide-react';
-import { Exam, StudentSession, UserRole, QuestionType } from '../../types';
+import { Exam, StudentSession, UserRole, QuestionType, ScreenCaptureState } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { api } from '../../services/api';
@@ -49,6 +49,8 @@ export const ActiveExam = () => {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   
   // --- Local State ---
   const [initStatus, setInitStatus] = useState<'LOADING' | 'READY' | 'SUBMITTING' | 'ERROR'>('LOADING');
@@ -63,6 +65,9 @@ export const ActiveExam = () => {
   const draftRevisionRef = useRef(0);
   const pendingCloudSaveRef = useRef(false);
   const cloudSaveInFlightRef = useRef(false);
+  const lastScreenCaptureRequestRef = useRef<string | null>(null);
+  const screenCaptureInFlightRef = useRef(false);
+  const screenSharePromptedRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null); // Remaining seconds
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -77,6 +82,7 @@ export const ActiveExam = () => {
     localSavedAt: number | null;
     cloudSavedAt: number | null;
   }>({ phase: 'idle', localSavedAt: null, cloudSavedAt: null });
+  const [screenShareStatus, setScreenShareStatus] = useState<'idle' | 'active' | 'stopped' | 'denied' | 'unsupported'>('idle');
   
   // Modal state for beautiful dialogs
   const { modalState, showModal, hideModal } = useModal();
@@ -140,6 +146,197 @@ export const ActiveExam = () => {
       localStorage.removeItem(getFlagStorageKey(studentId, examId));
     } catch (error) {
       console.warn('Failed to clear question flags:', error);
+    }
+  };
+
+  const stopScreenShare = () => {
+    screenStreamRef.current?.getTracks().forEach(track => track.stop());
+    screenStreamRef.current = null;
+    if (screenVideoRef.current) {
+      screenVideoRef.current.srcObject = null;
+    }
+  };
+
+  const hasLiveScreenShare = () =>
+    Boolean(screenStreamRef.current?.getVideoTracks().some(track => track.readyState === 'live'));
+
+  const markScreenCapture = async (capture: ScreenCaptureState) => {
+    const examData = activeExamDataRef.current;
+    if (!examData) return;
+    await api.sessions.updateScreenCapture(examData.session.studentId, examData.exam.id, capture);
+  };
+
+  const requestScreenSharePermission = async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setScreenShareStatus('unsupported');
+      showModal({
+        title: 'Screen Capture Unsupported',
+        message: 'This browser does not support secure screen sharing. Please use a current version of Chrome, Edge, or Firefox.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+      return false;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'monitor',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 5, max: 10 },
+        } as MediaTrackConstraints,
+        audio: false,
+      });
+      const track = stream.getVideoTracks()[0];
+      if (!track) {
+        stream.getTracks().forEach(t => t.stop());
+        throw new Error('No screen video track was shared.');
+      }
+      const displaySurface = (track.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface;
+
+      if (displaySurface && displaySurface !== 'monitor') {
+        stream.getTracks().forEach(t => t.stop());
+        setScreenShareStatus('denied');
+        showModal({
+          title: 'Share Entire Screen',
+          message: 'Please choose Entire Screen when sharing. Browser tabs or single windows do not satisfy this exam proctoring requirement.',
+          type: 'warning',
+          showCancel: false,
+          confirmText: 'OK',
+        });
+        return false;
+      }
+
+      stopScreenShare();
+      screenStreamRef.current = stream;
+      if (screenVideoRef.current) {
+        screenVideoRef.current.srcObject = stream;
+        await screenVideoRef.current.play();
+      }
+      track.onended = () => {
+        screenStreamRef.current = null;
+        setScreenShareStatus('stopped');
+      };
+      setScreenShareStatus('active');
+      return true;
+    } catch (error) {
+      setScreenShareStatus('denied');
+      showModal({
+        title: 'Screen Share Needed',
+        message: 'Full-screen sharing was not started. Proctors will not be able to capture your screen until you grant permission.',
+        type: 'warning',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+      return false;
+    }
+  };
+
+  const captureScreenBlob = async () => {
+    const video = screenVideoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      throw new Error('The shared screen is not ready yet.');
+    }
+
+    const maxWidth = 1600;
+    const scale = Math.min(1, maxWidth / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not prepare the screenshot canvas.');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('Could not encode the screenshot.'));
+      }, 'image/jpeg', 0.72);
+    });
+  };
+
+  const handleScreenCaptureRequest = async (request: ScreenCaptureState) => {
+    const examData = activeExamDataRef.current;
+    const requestId = request.requestId;
+    if (!examData || !requestId || screenCaptureInFlightRef.current) return;
+
+    screenCaptureInFlightRef.current = true;
+    const baseCapture = {
+      requestId,
+      requestedAt: request.requestedAt,
+      requestedBy: request.requestedBy,
+    };
+
+    try {
+      if (!hasLiveScreenShare()) {
+        await markScreenCapture({
+          ...baseCapture,
+          status: 'FAILED',
+          updatedAt: getServerTime(),
+          error: 'Student has not granted full-screen sharing permission.',
+        });
+        showModal({
+          title: 'Proctor Requested Screen Capture',
+          message: 'A proctor requested your screen. Please share your Entire Screen now so future requests can be captured instantly.',
+          type: 'warning',
+          confirmText: 'Share Entire Screen',
+          cancelText: 'Later',
+          showCancel: true,
+          onConfirm: async () => {
+            const granted = await requestScreenSharePermission();
+            if (granted) {
+              handleScreenCaptureRequest(request);
+            }
+          },
+        });
+        return;
+      }
+
+      await markScreenCapture({
+        ...baseCapture,
+        status: 'CAPTURING',
+        updatedAt: getServerTime(),
+      });
+
+      const blob = await captureScreenBlob();
+      if (blob.size > 2 * 1024 * 1024) {
+        throw new Error('Screenshot was too large to upload.');
+      }
+
+      const storagePath = `proctor-screenshots/${examData.exam.id}/${examData.session.studentId}/${requestId}.jpg`;
+      const storageRef = ref(storage, storagePath);
+      await uploadBytes(storageRef, blob, {
+        contentType: 'image/jpeg',
+        customMetadata: {
+          ownerUid: firebaseAuth.currentUser?.uid || '',
+          examId: examData.exam.id,
+          studentId: examData.session.studentId,
+          requestId,
+        },
+      });
+
+      const imageUrl = await getDownloadURL(storageRef);
+      const displaySurface = (screenStreamRef.current?.getVideoTracks()[0]?.getSettings() as MediaTrackSettings & { displaySurface?: string } | undefined)?.displaySurface;
+      await markScreenCapture({
+        ...baseCapture,
+        status: 'CAPTURED',
+        imageUrl,
+        storagePath,
+        capturedAt: getServerTime(),
+        updatedAt: getServerTime(),
+        displaySurface: displaySurface || 'monitor',
+      });
+    } catch (error: any) {
+      await markScreenCapture({
+        ...baseCapture,
+        status: 'FAILED',
+        updatedAt: getServerTime(),
+        error: error?.message || 'Screen capture failed.',
+      });
+    } finally {
+      screenCaptureInFlightRef.current = false;
     }
   };
 
@@ -614,6 +811,34 @@ export const ActiveExam = () => {
     };
   }, [initStatus, activeExamData?.exam.id]);
 
+  // --- 4b. Full-screen share for on-demand proctor screenshots ---
+  useEffect(() => {
+    if (initStatus !== 'READY' || screenSharePromptedRef.current) return;
+    screenSharePromptedRef.current = true;
+
+    showModal({
+      title: 'Allow Screen Capture',
+      message: (
+        <div className="space-y-3 text-left">
+          <p>
+            Proctors may request a one-time screenshot while the exam is active. Please choose
+            <strong> Entire Screen</strong> so the capture reflects everything visible on your monitor.
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Screenshots are not taken continuously. They are captured only when a proctor requests one.
+          </p>
+        </div>
+      ),
+      type: 'confirm',
+      confirmText: 'Share Entire Screen',
+      cancelText: 'Later',
+      showCancel: true,
+      onConfirm: requestScreenSharePermission,
+    });
+  }, [initStatus]);
+
+  useEffect(() => () => stopScreenShare(), []);
+
   // --- 5. Warnings Listener + Schedule/Time Extension Checker ---
   useEffect(() => {
     if (initStatus !== 'READY' || !activeExamData) return;
@@ -784,11 +1009,24 @@ export const ActiveExam = () => {
         });
       }
 
+      const screenCapture = currentSession.screenCapture;
+      if (
+        screenCapture?.status === 'REQUESTED' &&
+        screenCapture.requestId &&
+        screenCapture.requestId !== lastScreenCaptureRequestRef.current
+      ) {
+        lastScreenCaptureRequestRef.current = screenCapture.requestId;
+        handleScreenCaptureRequest(screenCapture);
+      }
+
       const shouldSyncSession =
         currentSession.status !== previousSession.status ||
         currentSession.submitTime !== previousSession.submitTime ||
         currentSession.extraTimeMinutes !== previousSession.extraTimeMinutes ||
         currentSession.isTerminated !== previousSession.isTerminated ||
+        currentSession.screenCapture?.requestId !== previousSession.screenCapture?.requestId ||
+        currentSession.screenCapture?.status !== previousSession.screenCapture?.status ||
+        currentSession.screenCapture?.capturedAt !== previousSession.screenCapture?.capturedAt ||
         (currentSession.warnings?.length || 0) !== (previousSession.warnings?.length || 0) ||
         (currentSession.violations?.length || 0) !== (previousSession.violations?.length || 0);
 
@@ -1179,6 +1417,20 @@ export const ActiveExam = () => {
          <div className="flex items-center gap-3 md:gap-6">
             <SaveStatusPill />
 
+            <button
+              type="button"
+              onClick={requestScreenSharePermission}
+              className={`hidden md:flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+                screenShareStatus === 'active'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
+                  : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300'
+              }`}
+              title={screenShareStatus === 'active' ? 'Entire screen sharing is active' : 'Share your entire screen for proctor screenshots'}
+            >
+              <Laptop size={14} />
+              {screenShareStatus === 'active' ? 'Screen Ready' : 'Share Screen'}
+            </button>
+
             <div className={`flex items-center gap-2 md:gap-3 px-3 py-1.5 md:px-4 md:py-2 rounded-full border ${
               (timeLeft || 0) < 300 ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300'
             }`}>
@@ -1217,6 +1469,7 @@ export const ActiveExam = () => {
 
       {/* Webcam (Hidden) */}
       <video ref={videoRef} autoPlay muted className="hidden" />
+      <video ref={screenVideoRef} autoPlay muted playsInline className="hidden" />
 
       <main className="flex flex-1 gap-6 overflow-hidden h-full">
         {/* PDF Panel */}

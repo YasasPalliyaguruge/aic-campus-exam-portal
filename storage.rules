@@ -40,6 +40,20 @@ service firebase.storage {
         && request.resource.metadata.studentId == studentId;
     }
 
+    function isScreenCaptureFile() {
+      return request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+    }
+
+    function isValidScreenCaptureOwner(examId, studentId) {
+      return isAuthenticated()
+        && request.resource.metadata.ownerUid == request.auth.uid
+        && request.resource.metadata.examId == examId
+        && request.resource.metadata.studentId == studentId
+        && request.resource.metadata.requestId is string;
+    }
+
     match /exam-resources/{fileName} {
       allow read: if isStaff();
       allow create, update: if isStaff()
@@ -52,6 +66,13 @@ service firebase.storage {
       allow read: if isStaff() || isOwnedSubmissionFile(examId, studentId);
       allow create: if isAllowedSubmissionFile()
         && isValidSubmissionOwner(examId, studentId);
+      allow update, delete: if false;
+    }
+
+    match /proctor-screenshots/{examId}/{studentId}/{fileName} {
+      allow read: if isStaff();
+      allow create: if isScreenCaptureFile()
+        && isValidScreenCaptureOwner(examId, studentId);
       allow update, delete: if false;
     }
 
