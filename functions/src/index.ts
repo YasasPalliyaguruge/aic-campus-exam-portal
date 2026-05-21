@@ -361,9 +361,6 @@ export const validateStudentAccess = onCall(async (request) => {
 
   if (sessionSnap.exists) {
     session = withId<StudentSession>(sessionSnap);
-    if (session.authUid && session.authUid !== uid) {
-      throw new HttpsError('permission-denied', 'This access code is already attached to another active sign-in.');
-    }
     await sessionRef.set({ authUid: uid }, { merge: true });
     session = { ...session, authUid: uid };
   } else {
