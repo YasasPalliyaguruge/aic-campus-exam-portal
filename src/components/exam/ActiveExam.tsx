@@ -494,13 +494,14 @@ export const ActiveExam = () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       window.removeEventListener("click", enforceFullscreen);
     };
-  }, [initStatus, activeExamData]);
+  }, [initStatus, activeExamData?.exam.id, activeExamData?.session.studentId]);
 
   // --- 4. Webcam ---
   useEffect(() => {
     if (initStatus !== 'READY') return;
     
-    let streamInterval: NodeJS.Timeout | null = null;
+    let streamInterval: ReturnType<typeof setInterval> | null = null;
+    let startupTimer: ReturnType<typeof setTimeout> | null = null;
     
     const startCam = async () => {
       try {
@@ -515,13 +516,14 @@ export const ActiveExam = () => {
           console.log('✅ Webcam stream started successfully');
           
           // Wait 2 seconds for video to fully initialize before starting frame capture
-          setTimeout(() => {
+          startupTimer = setTimeout(() => {
             console.log('📸 Starting frame capture...');
             
             streamInterval = setInterval(async () => {
               try {
                 if (frameUploadInFlightRef.current) return;
-                if (!videoRef.current || !activeExamData) {
+                const examData = activeExamDataRef.current;
+                if (!videoRef.current || !examData) {
                   console.warn('⚠️ Video ref or exam data missing');
                   return;
                 }
@@ -567,8 +569,8 @@ export const ActiveExam = () => {
                 
                 frameUploadInFlightRef.current = true;
                 await api.sessions.updateFrame(
-                  activeExamData.session.studentId, 
-                  activeExamData.exam.id, 
+                  examData.session.studentId,
+                  examData.exam.id,
                   frameData
                 );
                 
@@ -598,6 +600,9 @@ export const ActiveExam = () => {
 
     // Cleanup
     return () => {
+      if (startupTimer) {
+        clearTimeout(startupTimer);
+      }
       if (streamInterval) {
         clearInterval(streamInterval);
       }
@@ -607,7 +612,7 @@ export const ActiveExam = () => {
         console.log('🛑 Webcam stream stopped');
       }
     };
-  }, [initStatus, activeExamData]);
+  }, [initStatus, activeExamData?.exam.id]);
 
   // --- 5. Warnings Listener + Schedule/Time Extension Checker ---
   useEffect(() => {
@@ -616,8 +621,10 @@ export const ActiveExam = () => {
     // Light trusted refresh for schedule changes and server-time resync. Session changes arrive via direct listener below.
     const warningInterval = setInterval(async () => {
       try {
+        const examData = activeExamDataRef.current;
+        if (!examData) return;
         // Fetch the latest trusted student-scoped session and exam data
-        const context = await api.student.getActiveExamContext(activeExamData.exam.id);
+        const context = await api.student.getActiveExamContext(examData.exam.id);
         const currentSession = context.session;
         const currentExam = context.exam;
         
@@ -629,7 +636,7 @@ export const ActiveExam = () => {
             // Exam window has closed - auto-submit
             console.log("⏰ Exam window has closed (server time). Auto-submitting...");
             try {
-              await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFilesRef.current);
+              await api.sessions.submit(examData.session.studentId, examData.exam.id, answersRef.current, uploadedFilesRef.current);
             } catch (err) {
               console.error("Failed to auto-submit:", err);
             }
@@ -650,11 +657,11 @@ export const ActiveExam = () => {
            if (currentSession.status === 'SUBMITTED' || currentSession.status === 'COMPLETED') {
               // If the session was terminated externally (by proctor) and we haven't submitted locally yet,
               // we MUST save the current answers before leaving.
-              if (activeExamData.session.status !== 'SUBMITTED' && activeExamData.session.status !== 'COMPLETED') {
+              if (examData.session.status !== 'SUBMITTED' && examData.session.status !== 'COMPLETED') {
                   console.log("⚠️ Session terminated externally. Saving final answers...");
                   try {
                     // Use the REF to get the latest answers since state might be stale in this closure
-                    await api.sessions.submit(activeExamData.session.studentId, activeExamData.exam.id, answersRef.current, uploadedFilesRef.current);
+                    await api.sessions.submit(examData.session.studentId, examData.exam.id, answersRef.current, uploadedFilesRef.current);
                   } catch (err) {
                     console.error("Failed to save final answers on termination:", err);
                   }
@@ -673,7 +680,7 @@ export const ActiveExam = () => {
 
            // ===== CHECK FOR EXTRA TIME GRANTED =====
            const currentExtra = currentSession.extraTimeMinutes || 0;
-           const previousExtra = activeExamData.session.extraTimeMinutes || 0;
+            const previousExtra = examData.session.extraTimeMinutes || 0;
            if (currentExtra > previousExtra) {
               const addedMinutes = currentExtra - previousExtra;
               console.log(`🎁 Extra time granted: +${addedMinutes} minutes`);
@@ -693,9 +700,9 @@ export const ActiveExam = () => {
            }
 
            // Check for Warnings
-           if (currentSession.warnings && currentSession.warnings.length > (activeExamData.session.warnings?.length || 0)) {
+            if (currentSession.warnings && currentSession.warnings.length > (examData.session.warnings?.length || 0)) {
               // New warning found!
-              const newWarnings = currentSession.warnings.slice(activeExamData.session.warnings?.length || 0);
+              const newWarnings = currentSession.warnings.slice(examData.session.warnings?.length || 0);
               newWarnings.forEach(w => {
                 showModal({
                   title: '⚠️ Proctor Warning',
@@ -716,7 +723,7 @@ export const ActiveExam = () => {
     }, 60000);
 
     return () => clearInterval(warningInterval);
-  }, [initStatus, activeExamData]);
+  }, [initStatus]);
 
   useEffect(() => {
     if (initStatus !== 'READY' || !activeExamData) return;

@@ -244,7 +244,9 @@ const App = () => {
   const submitExamSession = async (studentId: string, examId: string, answers: Record<string, any>, uploadedFiles?: any[]) => {
     setIsLoading(true);
     await api.sessions.submit(studentId, examId, answers, uploadedFiles);
-    await refreshData();
+    if (auth.user?.role !== UserRole.STUDENT) {
+      await refreshData();
+    }
     setIsLoading(false);
   };
 
