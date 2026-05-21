@@ -835,30 +835,13 @@ export const ActiveExam = () => {
     };
   }, [initStatus, activeExamData?.exam.id]);
 
-  // --- 4b. Full-screen share for on-demand proctor screenshots ---
+  // --- 4b. Full-screen share availability for on-demand proctor screenshots ---
   useEffect(() => {
     if (initStatus !== 'READY' || screenSharePromptedRef.current) return;
     screenSharePromptedRef.current = true;
-
-    showModal({
-      title: 'Allow Screen Capture',
-      message: (
-        <div className="space-y-3 text-left">
-          <p>
-            Proctors may request a one-time screenshot while the exam is active. Please choose
-            <strong> Entire Screen</strong> so the capture reflects everything visible on your monitor.
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Screenshots are not taken continuously. They are captured only when a proctor requests one.
-          </p>
-        </div>
-      ),
-      type: 'confirm',
-      confirmText: 'Share Entire Screen',
-      cancelText: 'Later',
-      showCancel: true,
-      onConfirm: requestScreenSharePermission,
-    });
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setScreenShareStatus('unsupported');
+    }
   }, [initStatus]);
 
   useEffect(() => () => stopScreenShare(), []);
@@ -1424,6 +1407,63 @@ export const ActiveExam = () => {
     );
   };
 
+  const ScreenShareNotice = () => {
+    const isActive = screenShareStatus === 'active';
+    if (isActive) {
+      return (
+        <div className="mx-4 mt-4 rounded-3xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200 md:mx-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-emerald-100 p-2 dark:bg-emerald-900/40">
+                <Laptop size={20} />
+              </div>
+              <div>
+                <p className="font-bold">Entire screen sharing is active</p>
+                <p className="text-sm text-emerald-700 dark:text-emerald-300">
+                  Proctors can request a one-time screenshot when needed.
+                </p>
+              </div>
+            </div>
+            <Button size="sm" variant="secondary" onClick={requestScreenSharePermission}>
+              Change Shared Screen
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mx-4 mt-4 rounded-3xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-900 shadow-sm dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100 md:mx-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-amber-100 p-2 dark:bg-amber-900/40">
+              <Laptop size={20} />
+            </div>
+            <div>
+              <p className="font-bold">Screen sharing required for proctor screenshots</p>
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                Click the button and choose <strong>Entire Screen</strong>. Screenshots are only taken when a proctor requests one.
+              </p>
+              {screenShareStatus === 'unsupported' && (
+                <p className="mt-1 text-xs font-semibold text-red-600 dark:text-red-300">
+                  This browser does not support secure screen sharing. Please use Chrome, Edge, or Firefox.
+                </p>
+              )}
+              {screenShareStatus === 'stopped' && (
+                <p className="mt-1 text-xs font-semibold text-red-600 dark:text-red-300">
+                  Screen sharing was stopped. Start it again before continuing.
+                </p>
+              )}
+            </div>
+          </div>
+          <Button size="sm" onClick={requestScreenSharePermission} className="shrink-0">
+            <Laptop size={16} /> Share Entire Screen
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col font-sans select-none">
       {/* Header */}
@@ -1444,7 +1484,7 @@ export const ActiveExam = () => {
             <button
               type="button"
               onClick={requestScreenSharePermission}
-              className={`hidden md:flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
                 screenShareStatus === 'active'
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
                   : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300'
@@ -1494,6 +1534,8 @@ export const ActiveExam = () => {
       {/* Webcam (Hidden) */}
       <video ref={videoRef} autoPlay muted className="hidden" />
       <video ref={screenVideoRef} autoPlay muted playsInline className="hidden" />
+
+      <ScreenShareNotice />
 
       <main className="flex flex-1 gap-6 overflow-hidden h-full">
         {/* PDF Panel */}
