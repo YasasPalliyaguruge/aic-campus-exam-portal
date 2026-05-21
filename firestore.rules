@@ -32,10 +32,13 @@ service cloud.firestore {
     function isOwnFrameUpdate() {
       return ownsSession()
         && resource.data.status == 'IN_PROGRESS'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentFrame'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentFrame', 'currentFramePath', 'currentFrameUpdatedAt'])
         && request.resource.data.currentFrame is string
-        && request.resource.data.currentFrame.size() <= 150000
-        && request.resource.data.currentFrame.matches('^data:image/jpeg;base64,[A-Za-z0-9+/=]+$');
+        && request.resource.data.currentFrame.size() <= 3000
+        && request.resource.data.currentFrame.matches('^https://firebasestorage.googleapis.com/.*')
+        && request.resource.data.currentFramePath is string
+        && request.resource.data.currentFramePath.matches('^proctor-live-frames/[^/]+/[^/]+/current[.]jpg$')
+        && request.resource.data.currentFrameUpdatedAt is number;
     }
 
     function isOwnScreenCaptureUpdate() {

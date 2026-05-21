@@ -46,6 +46,12 @@ service firebase.storage {
         && request.resource.contentType == 'image/jpeg';
     }
 
+    function isLiveFrameFile() {
+      return request.resource != null
+        && request.resource.size <= 150 * 1024
+        && request.resource.contentType == 'image/jpeg';
+    }
+
     function isValidScreenCaptureOwner(examId, studentId) {
       return isAuthenticated()
         && request.resource.metadata.ownerUid == request.auth.uid
@@ -82,7 +88,18 @@ service firebase.storage {
       allow read: if isStaff() || isOwnedScreenCaptureFile(examId, studentId);
       allow create: if isScreenCaptureFile()
         && isValidScreenCaptureOwner(examId, studentId);
-      allow update, delete: if false;
+      allow update: if isScreenCaptureFile()
+        && isValidScreenCaptureOwner(examId, studentId);
+      allow delete: if false;
+    }
+
+    match /proctor-live-frames/{examId}/{studentId}/current.jpg {
+      allow read: if isStaff() || isOwnedScreenCaptureFile(examId, studentId);
+      allow create: if isLiveFrameFile()
+        && isValidScreenCaptureOwner(examId, studentId);
+      allow update: if isLiveFrameFile()
+        && isValidScreenCaptureOwner(examId, studentId);
+      allow delete: if false;
     }
 
     match /{allPaths=**} {

@@ -68,6 +68,7 @@ export const ActiveExam = () => {
   const lastScreenCaptureRequestRef = useRef<string | null>(null);
   const screenCaptureInFlightRef = useRef(false);
   const screenSharePromptedRef = useRef(false);
+  const screenShareStopLoggedRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null); // Remaining seconds
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -218,7 +219,16 @@ export const ActiveExam = () => {
       track.onended = () => {
         screenStreamRef.current = null;
         setScreenShareStatus('stopped');
+        const examData = activeExamDataRef.current;
+        if (examData && !screenShareStopLoggedRef.current) {
+          screenShareStopLoggedRef.current = true;
+          api.sessions.logViolation(examData.session.studentId, examData.exam.id, {
+            timestamp: getServerTime(),
+            type: 'SCREEN_SHARE_STOPPED',
+          });
+        }
       };
+      screenShareStopLoggedRef.current = false;
       setScreenShareStatus('active');
       return true;
     } catch (error) {
@@ -329,7 +339,7 @@ export const ActiveExam = () => {
         throw new Error('Screenshot was too large to upload.');
       }
 
-      const storagePath = `proctor-screenshots/${examData.exam.id}/${examData.session.studentId}/${requestId}.jpg`;
+      const storagePath = `proctor-screenshots/${examData.exam.id}/${examData.session.studentId}/latest.jpg`;
       const storageRef = ref(storage, storagePath);
       await uploadBytes(storageRef, blob, {
         contentType: 'image/jpeg',
@@ -774,25 +784,41 @@ export const ActiveExam = () => {
                 }
                 
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const frameData = canvas.toDataURL('image/jpeg', 0.55);
+                const frameBlob = await new Promise<Blob | null>((resolve) => {
+                  canvas.toBlob(resolve, 'image/jpeg', 0.55);
+                });
                 
                 // Verify we have actual image data
-                if (frameData.length < 1000) {
+                if (!frameBlob || frameBlob.size < 500) {
                   console.warn('⚠️ Frame data too small, likely blank');
                   return;
                 }
                 
-                console.log('📤 Uploading frame... (size:', Math.round(frameData.length / 1024), 'KB)');
-                if (frameData.length > 150000) {
+                console.log('📤 Uploading frame... (size:', Math.round(frameBlob.size / 1024), 'KB)');
+                if (frameBlob.size > 120000) {
                   console.warn('Frame data too large, skipping upload');
                   return;
                 }
                 
                 frameUploadInFlightRef.current = true;
+                const framePath = `proctor-live-frames/${examData.exam.id}/${examData.session.studentId}/current.jpg`;
+                const frameRef = ref(storage, framePath);
+                await uploadBytes(frameRef, frameBlob, {
+                  contentType: 'image/jpeg',
+                  customMetadata: {
+                    ownerUid: firebaseAuth.currentUser?.uid || '',
+                    examId: examData.exam.id,
+                    studentId: examData.session.studentId,
+                    requestId: 'live-frame',
+                    purpose: 'live-frame',
+                  },
+                });
+                const frameUrl = await getDownloadURL(frameRef);
                 await api.sessions.updateFrame(
                   examData.session.studentId,
                   examData.exam.id,
-                  frameData
+                  frameUrl,
+                  framePath
                 );
                 
                 console.log('✅ Frame uploaded successfully!');
@@ -1363,6 +1389,7 @@ export const ActiveExam = () => {
   const hasReferenceDocument = Boolean(exam.referenceDocumentPath || exam.referenceDocumentUrl);
   const lastSavedAt = draftSaveState.cloudSavedAt || draftSaveState.localSavedAt;
   const saveTimeLabel = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const isScreenShareBlocking = screenShareStatus !== 'active';
 
   const SaveStatusPill = () => {
     const commonClass = 'flex items-center gap-2 px-2.5 md:px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap';
@@ -1464,6 +1491,35 @@ export const ActiveExam = () => {
     );
   };
 
+  const ScreenShareBlocker = () => {
+    if (screenShareStatus === 'active') return null;
+
+    return (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-gray-950/75 p-4 backdrop-blur-md">
+        <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-white p-6 text-center shadow-2xl dark:bg-gray-900">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            <Laptop size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Share Your Entire Screen</h2>
+          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
+            This proctored exam requires screen sharing until submission. If sharing is stopped, the exam is paused and the event is recorded.
+          </p>
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-left text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+            When the browser prompt opens, choose <strong>Entire Screen</strong>, not a tab or a single window.
+          </div>
+          <Button className="mt-6 w-full" onClick={requestScreenSharePermission}>
+            <Laptop size={18} /> Share Entire Screen
+          </Button>
+          {screenShareStatus === 'unsupported' && (
+            <p className="mt-3 text-xs font-semibold text-red-600 dark:text-red-300">
+              This browser does not support screen sharing. Please use Chrome, Edge, or Firefox.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col font-sans select-none">
       {/* Header */}
@@ -1536,8 +1592,9 @@ export const ActiveExam = () => {
       <video ref={screenVideoRef} autoPlay muted playsInline className="hidden" />
 
       <ScreenShareNotice />
+      <ScreenShareBlocker />
 
-      <main className="flex flex-1 gap-6 overflow-hidden h-full">
+      <main className={`flex flex-1 gap-6 overflow-hidden h-full transition-all duration-300 ${isScreenShareBlocking ? 'pointer-events-none select-none blur-[2px] opacity-50' : ''}`}>
         {/* PDF Panel */}
         {isSplitView && referenceDocumentUrl && (
           <div className="w-[45%] overflow-hidden">

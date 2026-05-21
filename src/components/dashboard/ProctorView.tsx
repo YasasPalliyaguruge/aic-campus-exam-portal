@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer, Camera, MonitorUp } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
@@ -13,8 +13,17 @@ export const ProctorView = () => {
   const { users, exams, sessions } = useApp();
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const { modalState, showModal, hideModal } = useModal();
+  const cleanupStartedRef = useRef(false);
 
   const activeSessions = sessions.filter(s => s.status === 'IN_PROGRESS');
+
+  useEffect(() => {
+    if (cleanupStartedRef.current) return;
+    cleanupStartedRef.current = true;
+    api.sessions.cleanupProctorMedia().catch(error => {
+      console.warn('Proctor media cleanup failed:', error);
+    });
+  }, []);
 
   const showFollowUpModal = (options: Parameters<typeof showModal>[0]) => {
     setTimeout(() => showModal(options), 0);
@@ -29,6 +38,12 @@ export const ProctorView = () => {
     if (status === 'DENIED') return 'Permission denied';
     if (status === 'STOPPED') return 'Screen share stopped';
     return status.replace(/_/g, ' ');
+  };
+
+  const withCacheBust = (url?: string, timestamp?: number) => {
+    if (!url) return '';
+    if (!timestamp) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}t=${timestamp}`;
   };
 
   const handleRequestScreenCapture = async (sessionId: string) => {
@@ -147,7 +162,7 @@ export const ProctorView = () => {
               <div className="aspect-video bg-gray-900 relative">
                 {/* Live Stream Frame */}
                 {session.currentFrame ? (
-                  <img src={session.currentFrame} alt="Live Stream" className="w-full h-full object-cover" />
+                  <img src={withCacheBust(session.currentFrame, session.currentFrameUpdatedAt)} alt="Live Stream" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-500">
                     <Video size={32} className="animate-pulse" />
@@ -272,7 +287,7 @@ export const ProctorView = () => {
                <div className="space-y-6">
                   <div className="aspect-video bg-black rounded-xl overflow-hidden border-2 border-gray-800 relative shadow-lg">
                     {selectedSession.currentFrame ? (
-                      <img src={selectedSession.currentFrame} alt="Live Stream" className="w-full h-full object-cover" />
+                      <img src={withCacheBust(selectedSession.currentFrame, selectedSession.currentFrameUpdatedAt)} alt="Live Stream" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-500">
                         <Video size={48} className="animate-pulse" />
@@ -306,7 +321,7 @@ export const ProctorView = () => {
                       {selectedSession.screenCapture?.imageUrl ? (
                         <a href={selectedSession.screenCapture.imageUrl} target="_blank" rel="noreferrer" className="block">
                           <img
-                            src={selectedSession.screenCapture.imageUrl}
+                            src={withCacheBust(selectedSession.screenCapture.imageUrl, selectedSession.screenCapture.capturedAt)}
                             alt="Latest student screen capture"
                             className="w-full aspect-video object-contain bg-black"
                           />

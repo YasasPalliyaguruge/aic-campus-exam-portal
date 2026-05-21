@@ -91,7 +91,9 @@ export interface StudentSession {
   questionScores?: Record<string, number>; // Individual question scores
   gradedAt?: number; // Timestamp of grading
   graderNotes?: Record<string, string>; // Per-question feedback
-  currentFrame?: string; // Current webcam frame for proctoring
+  currentFrame?: string; // Latest webcam frame URL for proctoring
+  currentFramePath?: string;
+  currentFrameUpdatedAt?: number;
   screenCapture?: ScreenCaptureState; // Latest on-demand full-screen capture request/result
   warnings?: string[]; // Warnings sent by proctor
   isFlagged?: boolean; // Marked for review by proctor
@@ -115,7 +117,7 @@ export interface ScreenCaptureState {
 
 export interface Violation {
   timestamp: number;
-  type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'NO_FACE_DETECTED' | 'PASTE_ATTEMPT';
+  type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'NO_FACE_DETECTED' | 'PASTE_ATTEMPT' | 'SCREEN_SHARE_STOPPED';
 }
 
 export interface AuthState {

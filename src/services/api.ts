@@ -424,10 +424,14 @@ export const api = {
         });
       }
     },
-    updateFrame: async (studentId: string, examId: string, frameData: string) => {
+    updateFrame: async (studentId: string, examId: string, frameData: string, framePath?: string) => {
       const sessionId = `${studentId}_${examId}`;
       const sessionRef = doc(db, 'sessions', sessionId);
-      await updateDoc(sessionRef, { currentFrame: frameData });
+      await updateDoc(sessionRef, {
+        currentFrame: frameData,
+        currentFramePath: framePath || '',
+        currentFrameUpdatedAt: getServerTime(),
+      });
     },
     requestScreenCapture: async (sessionId: string) => {
       const requestId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -446,6 +450,14 @@ export const api = {
     updateScreenCapture: async (studentId: string, examId: string, screenCapture: ScreenCaptureState) => {
       const sessionId = `${studentId}_${examId}`;
       await updateDoc(doc(db, 'sessions', sessionId), { screenCapture });
+    },
+    cleanupProctorMedia: async () => {
+      return await callFunction<Record<string, never>, {
+        clearedSessionDocs: number;
+        deletedOldScreenshotObjects: number;
+        deletedOldFrameObjects: number;
+        serverNowMs: number;
+      }>('cleanupProctorMedia', {});
     },
     subscribeToSession: (studentId: string, examId: string, callback: (session: StudentSession | null) => void) => {
       const sessionId = `${studentId}_${examId}`;

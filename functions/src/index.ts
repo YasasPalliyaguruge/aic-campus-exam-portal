@@ -61,6 +61,13 @@ interface StudentSession {
   uploadedFiles?: unknown[];
   extraTimeMinutes?: number;
   isTerminated?: boolean;
+  currentFrame?: string;
+  currentFramePath?: string;
+  currentFrameUpdatedAt?: number;
+  screenCapture?: {
+    imageUrl?: string;
+    storagePath?: string;
+  };
 }
 
 interface UploadedExamFile {
@@ -599,6 +606,61 @@ export const logStudentViolation = onCall(async (request) => {
   return {
     session: { ...session, violations: [...(session.violations || []), safeViolation] },
     serverNowMs: safeViolation.timestamp,
+  };
+});
+
+export const cleanupProctorMedia = onCall(async (request) => {
+  const uid = requireAuthUid(request.auth);
+  await assertStaffProfile(uid);
+
+  const sessionsSnap = await db.collection('sessions').get();
+  let clearedSessionDocs = 0;
+  let batch = db.batch();
+  let batchCount = 0;
+
+  for (const snap of sessionsSnap.docs) {
+    const session = withId<StudentSession>(snap);
+    const updates: Record<string, unknown> = {};
+
+    if (typeof session.currentFrame === 'string' && session.currentFrame.startsWith('data:image/')) {
+      updates.currentFrame = FieldValue.delete();
+      updates.currentFramePath = FieldValue.delete();
+      updates.currentFrameUpdatedAt = FieldValue.delete();
+    }
+
+    const screenCapturePath = session.screenCapture?.storagePath;
+    if (screenCapturePath && !screenCapturePath.endsWith('/latest.jpg')) {
+      updates.screenCapture = FieldValue.delete();
+    }
+
+    if (Object.keys(updates).length) {
+      batch.update(snap.ref, updates);
+      clearedSessionDocs += 1;
+      batchCount += 1;
+      if (batchCount >= 450) {
+        await batch.commit();
+        batch = db.batch();
+        batchCount = 0;
+      }
+    }
+  }
+
+  if (batchCount) await batch.commit();
+
+  const storageBucket = getStorage(app).bucket(getDefaultStorageBucketName());
+  const [screenshotFiles] = await storageBucket.getFiles({ prefix: 'proctor-screenshots/' });
+  const oldScreenshotFiles = screenshotFiles.filter(file => !file.name.endsWith('/latest.jpg'));
+  await Promise.all(oldScreenshotFiles.map(file => file.delete({ ignoreNotFound: true })));
+
+  const [frameFiles] = await storageBucket.getFiles({ prefix: 'proctor-live-frames/' });
+  const oldFrameFiles = frameFiles.filter(file => !file.name.endsWith('/current.jpg'));
+  await Promise.all(oldFrameFiles.map(file => file.delete({ ignoreNotFound: true })));
+
+  return {
+    clearedSessionDocs,
+    deletedOldScreenshotObjects: oldScreenshotFiles.length,
+    deletedOldFrameObjects: oldFrameFiles.length,
+    serverNowMs: Date.now(),
   };
 });
 

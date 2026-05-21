@@ -8,6 +8,11 @@ import { Badge } from '../ui/Badge';
 
 export const Overview = () => {
   const { exams, sessions, users } = useApp();
+  const withCacheBust = (url?: string, timestamp?: number) => {
+    if (!url) return '';
+    if (!timestamp) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}t=${timestamp}`;
+  };
   
   // --- Metrics Calculation ---
   const totalStudents = users.filter(u => u.role === UserRole.STUDENT).length;
@@ -138,7 +143,7 @@ export const Overview = () => {
                        <div className="relative">
                          <div className="w-10 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 overflow-hidden">
                             {s.currentFrame ? (
-                              <img src={s.currentFrame} alt="Live" className="w-full h-full object-cover" />
+                              <img src={withCacheBust(s.currentFrame, s.currentFrameUpdatedAt)} alt="Live" className="w-full h-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-gray-400"><Users size={16}/></div>
                             )}
