@@ -236,7 +236,31 @@ export const ActiveExam = () => {
 
   const captureScreenBlob = async () => {
     const video = screenVideoRef.current;
-    if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+    if (!video) {
+      throw new Error('The shared screen is not ready yet.');
+    }
+
+    const ready = await new Promise<boolean>((resolve) => {
+      if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+        resolve(true);
+        return;
+      }
+
+      const startedAt = Date.now();
+      const timer = window.setInterval(() => {
+        if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+          window.clearInterval(timer);
+          resolve(true);
+          return;
+        }
+        if (Date.now() - startedAt > 3000) {
+          window.clearInterval(timer);
+          resolve(false);
+        }
+      }, 100);
+    });
+
+    if (!ready) {
       throw new Error('The shared screen is not ready yet.');
     }
 

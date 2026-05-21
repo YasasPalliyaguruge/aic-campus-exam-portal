@@ -54,6 +54,15 @@ service firebase.storage {
         && request.resource.metadata.requestId is string;
     }
 
+    function isOwnedScreenCaptureFile(examId, studentId) {
+      return isAuthenticated()
+        && resource != null
+        && resource.metadata.ownerUid == request.auth.uid
+        && resource.metadata.examId == examId
+        && resource.metadata.studentId == studentId
+        && resource.metadata.requestId is string;
+    }
+
     match /exam-resources/{fileName} {
       allow read: if isStaff();
       allow create, update: if isStaff()
@@ -70,7 +79,7 @@ service firebase.storage {
     }
 
     match /proctor-screenshots/{examId}/{studentId}/{fileName} {
-      allow read: if isStaff();
+      allow read: if isStaff() || isOwnedScreenCaptureFile(examId, studentId);
       allow create: if isScreenCaptureFile()
         && isValidScreenCaptureOwner(examId, studentId);
       allow update, delete: if false;
