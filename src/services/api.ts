@@ -74,13 +74,17 @@ export const api = {
             }
           }
 
+          if (role === 'STUDENT' && auth.currentUser && !auth.currentUser.isAnonymous) {
+            await signOut(auth);
+          }
+
           if (!auth.currentUser) {
             await signInAnonymously(auth);
           }
 
           const result = await callFunction<{ email: string; accessCode: string }, StudentExamContext>('validateStudentAccess', {
-            email: idOrEmail,
-            accessCode: code || '',
+            email: idOrEmail.trim(),
+            accessCode: (code || '').replace(/\s+/g, '').toUpperCase(),
           });
 
           updateCachedServerTime(result.serverNowMs);
@@ -126,7 +130,18 @@ export const api = {
             throw new Error('Invalid credentials. Please check your email and password.');
           }
           if (error.code === 'functions/permission-denied' || error.code === 'permission-denied') {
-            throw new Error('This account is not registered or authorized as staff.');
+            throw new Error(role === 'STAFF'
+              ? 'This account is not registered or authorized as staff.'
+              : (error.message || 'Invalid email or exam access code. Please check the details and try again.'));
+          }
+          if (role === 'STUDENT' && (error.code === 'functions/not-found' || error.code === 'not-found')) {
+            throw new Error(error.message || 'Student not found. Please check the email address.');
+          }
+          if (role === 'STUDENT' && (error.code === 'functions/failed-precondition' || error.code === 'failed-precondition')) {
+            throw new Error(error.message || 'This exam is not available yet.');
+          }
+          if (role === 'STUDENT' && (error.code === 'functions/invalid-argument' || error.code === 'invalid-argument')) {
+            throw new Error(error.message || 'Please enter a valid student email and access code.');
           }
 
           throw new Error(error.message || 'Login failed. Please try again.');

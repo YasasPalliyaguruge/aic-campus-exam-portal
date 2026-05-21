@@ -72,7 +72,7 @@ interface UploadedExamFile {
   uploadedAt: number;
 }
 
-const normalizeCode = (value: unknown) => String(value || '').trim().toUpperCase();
+const normalizeCode = (value: unknown) => String(value || '').replace(/\s+/g, '').trim().toUpperCase();
 const STAFF_ROLES = new Set(['ADMIN', 'LECTURER']);
 const FINAL_SUBMISSION_GRACE_MS = 2 * 60 * 1000;
 const MAX_SUBMISSION_FILE_SIZE = 25 * 1024 * 1024;
