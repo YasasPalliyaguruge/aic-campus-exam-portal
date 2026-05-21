@@ -1439,21 +1439,16 @@ export const ActiveExam = () => {
     if (isActive) {
       return (
         <div className="mx-4 mt-4 rounded-3xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200 md:mx-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="rounded-2xl bg-emerald-100 p-2 dark:bg-emerald-900/40">
-                <Laptop size={20} />
-              </div>
-              <div>
-                <p className="font-bold">Entire screen sharing is active</p>
-                <p className="text-sm text-emerald-700 dark:text-emerald-300">
-                  Proctors can request a one-time screenshot when needed.
-                </p>
-              </div>
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-emerald-100 p-2 dark:bg-emerald-900/40">
+              <Laptop size={20} />
             </div>
-            <Button size="sm" variant="secondary" onClick={requestScreenSharePermission}>
-              Change Shared Screen
-            </Button>
+            <div>
+              <p className="font-bold">Entire screen sharing is active</p>
+              <p className="text-sm text-emerald-700 dark:text-emerald-300">
+                Proctors can request a one-time screenshot when needed.
+              </p>
+            </div>
           </div>
         </div>
       );
@@ -1537,19 +1532,25 @@ export const ActiveExam = () => {
          <div className="flex items-center gap-3 md:gap-6">
             <SaveStatusPill />
 
-            <button
-              type="button"
-              onClick={requestScreenSharePermission}
-              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${
-                screenShareStatus === 'active'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
-                  : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300'
-              }`}
-              title={screenShareStatus === 'active' ? 'Entire screen sharing is active' : 'Share your entire screen for proctor screenshots'}
-            >
-              <Laptop size={14} />
-              {screenShareStatus === 'active' ? 'Screen Ready' : 'Share Screen'}
-            </button>
+            {screenShareStatus === 'active' ? (
+              <div
+                className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"
+                title="Entire screen sharing is active"
+              >
+                <Laptop size={14} />
+                Screen Ready
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={requestScreenSharePermission}
+                className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 transition-all hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+                title="Share your entire screen for proctor screenshots"
+              >
+                <Laptop size={14} />
+                Share Screen
+              </button>
+            )}
 
             <div className={`flex items-center gap-2 md:gap-3 px-3 py-1.5 md:px-4 md:py-2 rounded-full border ${
               (timeLeft || 0) < 300 ? 'bg-red-50 border-red-200 text-red-600 animate-pulse' : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300'
