@@ -9,7 +9,7 @@ import { api } from '../../services/api';
 
 export const LoginPortal = () => {
   const { login, isLoading } = useApp();
-  const [mode, setMode] = useState<'STAFF' | 'STUDENT'>('STAFF');
+  const [mode, setMode] = useState<'STAFF' | 'STUDENT'>('STUDENT');
   const [staffEmail, setStaffEmail] = useState('');
   const [password, setPassword] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
@@ -70,16 +70,6 @@ export const LoginPortal = () => {
             <p className="text-gray-200 text-base md:text-lg font-medium italic opacity-90 hidden md:block">
               Experience The Difference
             </p>
-          </div>
-          <div className="relative z-10 mt-8 hidden md:grid grid-cols-2 gap-3 text-left">
-            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur shadow-lg shadow-black/10">
-              <p className="text-[11px] uppercase tracking-widest text-cyan-100/80 font-bold">Secure</p>
-              <p className="mt-1 text-sm text-white/85">Timed exams with proctoring controls</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur shadow-lg shadow-black/10">
-              <p className="text-[11px] uppercase tracking-widest text-emerald-100/80 font-bold">Reliable</p>
-              <p className="mt-1 text-sm text-white/85">Autosaved student responses</p>
-            </div>
           </div>
         </div>
 
@@ -191,7 +181,7 @@ export const LoginPortal = () => {
           
           <div className="mt-8 text-center">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Examination Portal v2.0
+              Examination Portal v3.0
             </p>
 
           </div>
