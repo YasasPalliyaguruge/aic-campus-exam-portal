@@ -26,8 +26,10 @@ type LocalExamDraft = {
 
 type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offline' | 'error';
 
-const CLOUD_AUTOSAVE_DEBOUNCE_MS = 25000;
-const CLOUD_AUTOSAVE_MAX_WAIT_MS = 60000;
+const CLOUD_AUTOSAVE_DEBOUNCE_MS = 10000;
+const CLOUD_AUTOSAVE_MAX_WAIT_MS = 10 * 60 * 1000;
+const CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD = 500;
+const CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD = 20;
 
 const sanitizeStorageFileName = (fileName: string) =>
   fileName
@@ -64,7 +66,10 @@ export const ActiveExam = () => {
   const lastCloudSaveAtRef = useRef(0);
   const draftRevisionRef = useRef(0);
   const pendingCloudSaveRef = useRef(false);
+  const pendingCloudSaveStartedAtRef = useRef(0);
   const cloudSaveInFlightRef = useRef(false);
+  const dirtyTextCharCountRef = useRef(0);
+  const dirtyAnswerChangeCountRef = useRef(0);
   const lastScreenCaptureRequestRef = useRef<string | null>(null);
   const screenCaptureInFlightRef = useRef(false);
   const screenSharePromptedRef = useRef(false);
@@ -422,6 +427,32 @@ export const ActiveExam = () => {
     }
   };
 
+  const getAnswerTextLength = (value: any): number => {
+    if (typeof value !== 'string') return 0;
+    return value
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .length;
+  };
+
+  const trackDraftChange = (previousValue: any, nextValue: any) => {
+    const previousLength = getAnswerTextLength(previousValue);
+    const nextLength = getAnswerTextLength(nextValue);
+    dirtyTextCharCountRef.current += Math.max(0, nextLength - previousLength);
+    dirtyAnswerChangeCountRef.current += 1;
+  };
+
+  const resetCloudSaveThresholds = () => {
+    dirtyTextCharCountRef.current = 0;
+    dirtyAnswerChangeCountRef.current = 0;
+    pendingCloudSaveStartedAtRef.current = 0;
+  };
+
   const saveDraftToCloud = async (reason = 'autosave') => {
     const current = activeExamDataRef.current;
     if (!current || current.session.status === 'SUBMITTED' || current.session.status === 'COMPLETED') return;
@@ -449,6 +480,7 @@ export const ActiveExam = () => {
         draftRevisionRef.current,
       );
       lastCloudSaveAtRef.current = Date.now();
+      resetCloudSaveThresholds();
       setDraftSaveState(prev => ({
         ...prev,
         phase: 'cloud',
@@ -472,9 +504,12 @@ export const ActiveExam = () => {
     }
   };
 
-  const scheduleCloudDraftSave = () => {
+  const scheduleCloudDraftSave = (reason = 'autosave') => {
     if (!activeExamDataRef.current) return;
     pendingCloudSaveRef.current = true;
+    if (!pendingCloudSaveStartedAtRef.current) {
+      pendingCloudSaveStartedAtRef.current = Date.now();
+    }
     const currentlyOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
     if (!currentlyOnline) {
       setDraftSaveState(prev => ({ ...prev, phase: 'offline' }));
@@ -485,11 +520,17 @@ export const ActiveExam = () => {
       window.clearTimeout(autosaveTimerRef.current);
     }
 
-    const elapsed = Date.now() - lastCloudSaveAtRef.current;
-    const delay = elapsed >= CLOUD_AUTOSAVE_MAX_WAIT_MS ? 0 : CLOUD_AUTOSAVE_DEBOUNCE_MS;
+    const lastCloudBaseline = lastCloudSaveAtRef.current || pendingCloudSaveStartedAtRef.current || Date.now();
+    const elapsed = Date.now() - lastCloudBaseline;
+    const reachedChangeThreshold =
+      dirtyTextCharCountRef.current >= CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD ||
+      dirtyAnswerChangeCountRef.current >= CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD;
+    const delay = reachedChangeThreshold
+      ? CLOUD_AUTOSAVE_DEBOUNCE_MS
+      : Math.max(CLOUD_AUTOSAVE_MAX_WAIT_MS - elapsed, CLOUD_AUTOSAVE_DEBOUNCE_MS);
     autosaveTimerRef.current = window.setTimeout(() => {
       autosaveTimerRef.current = null;
-      saveDraftToCloud(delay === 0 ? 'max-wait' : 'debounced');
+      saveDraftToCloud(reachedChangeThreshold ? 'change-threshold' : reason);
     }, delay);
   };
 
@@ -1072,7 +1113,7 @@ export const ActiveExam = () => {
 
   // --- Handlers ---
   const goToQuestion = (nextIndex: number) => {
-    persistDraft(answersRef.current, uploadedFilesRef.current, true);
+    persistDraft(answersRef.current, uploadedFilesRef.current);
     setCurrentQuestionIndex(nextIndex);
     setIsNavOpen(false);
   };
@@ -1091,15 +1132,32 @@ export const ActiveExam = () => {
          newVal = [...current, val];
        }
        const newAnswers = {...answersRef.current, [qId]: newVal};
+       trackDraftChange(answersRef.current[qId], newVal);
        answersRef.current = newAnswers;
        setAnswers(newAnswers);
        persistDraft(newAnswers, uploadedFilesRef.current);
     } else {
        const newAnswers = {...answersRef.current, [qId]: val};
+       trackDraftChange(answersRef.current[qId], val);
        answersRef.current = newAnswers;
        setAnswers(newAnswers);
        persistDraft(newAnswers, uploadedFilesRef.current);
      }
+  };
+
+  const handleManualSave = async () => {
+    if (!activeExamDataRef.current || draftSaveState.phase === 'saving') return;
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    persistLocalDraft(
+      activeExamDataRef.current.session.studentId,
+      activeExamDataRef.current.exam.id,
+      answersRef.current,
+      uploadedFilesRef.current,
+    );
+    await saveDraftToCloud('manual');
   };
 
   const toggleFlagCurrentQuestion = () => {
@@ -1531,6 +1589,16 @@ export const ActiveExam = () => {
 
          <div className="flex items-center gap-3 md:gap-6">
             <SaveStatusPill />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleManualSave}
+              loading={draftSaveState.phase === 'saving'}
+              className="gap-2"
+            >
+              <Save size={16} />
+              <span className="hidden sm:inline">Save Now</span>
+            </Button>
 
             {screenShareStatus === 'active' ? (
               <div
