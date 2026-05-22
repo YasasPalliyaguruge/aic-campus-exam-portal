@@ -1113,7 +1113,7 @@ export const ActiveExam = () => {
 
   // --- Handlers ---
   const goToQuestion = (nextIndex: number) => {
-    persistDraft(answersRef.current, uploadedFilesRef.current);
+    persistDraft(answersRef.current, uploadedFilesRef.current, true);
     setCurrentQuestionIndex(nextIndex);
     setIsNavOpen(false);
   };
