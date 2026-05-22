@@ -1445,17 +1445,20 @@ export const ActiveExam = () => {
   const currentA = answers[currentQ.id];
   const isCurrentQuestionFlagged = flaggedQuestionIds.includes(currentQ.id);
   const hasReferenceDocument = Boolean(exam.referenceDocumentPath || exam.referenceDocumentUrl);
-  const lastSavedAt = draftSaveState.cloudSavedAt || draftSaveState.localSavedAt;
-  const saveTimeLabel = lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const cloudSaveTimeLabel = draftSaveState.cloudSavedAt
+    ? new Date(draftSaveState.cloudSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '';
   const isScreenShareBlocking = screenShareStatus !== 'active';
 
   const SaveStatusPill = () => {
     const commonClass = 'flex items-center gap-2 px-2.5 md:px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap';
+    const cloudTimeText = cloudSaveTimeLabel ? `Cloud ${cloudSaveTimeLabel}` : 'not yet synced';
     if (draftSaveState.phase === 'saving') {
       return (
-        <div className={`${commonClass} bg-violet-50 border-violet-200 text-violet-700 dark:bg-violet-900/20 dark:border-violet-800 dark:text-violet-300`}>
+        <div className={`${commonClass} bg-violet-50 border-violet-200 text-violet-700 dark:bg-violet-900/20 dark:border-violet-800 dark:text-violet-300`} title={cloudTimeText}>
           <Loader2 size={14} className="animate-spin" />
-          <span className="hidden md:inline">Saving...</span>
+          <span>Saving...</span>
+          <span className="text-violet-500 dark:text-violet-300/80">· {cloudTimeText}</span>
         </div>
       );
     }
@@ -1463,7 +1466,8 @@ export const ActiveExam = () => {
       return (
         <div className={`${commonClass} bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300`} title="Answers are saved locally and will sync when connection returns.">
           <CloudOff size={14} />
-          <span className="hidden md:inline">Offline, saved locally</span>
+          <span>Offline</span>
+          <span className="text-amber-600 dark:text-amber-300/80">· {cloudTimeText}</span>
         </div>
       );
     }
@@ -1471,7 +1475,8 @@ export const ActiveExam = () => {
       return (
         <div className={`${commonClass} bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300`} title="Local draft is preserved. Cloud sync will retry automatically.">
           <AlertTriangle size={14} />
-          <span className="hidden md:inline">Sync retrying</span>
+          <span>Sync retrying</span>
+          <span className="text-red-600 dark:text-red-300/80">· {cloudTimeText}</span>
         </div>
       );
     }
@@ -1479,7 +1484,8 @@ export const ActiveExam = () => {
       return (
         <div className={`${commonClass} bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300`} title="Your answer is saved on this device and queued for cloud sync.">
           <Save size={14} />
-          <span className="hidden md:inline">Saved locally</span>
+          <span>Cloud pending</span>
+          <span className="text-blue-600 dark:text-blue-300/80">· {cloudTimeText}</span>
         </div>
       );
     }
@@ -1487,7 +1493,7 @@ export const ActiveExam = () => {
     return (
       <div className={`${commonClass} bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300`}>
         <Cloud size={14} />
-        <span className="hidden md:inline">{saveTimeLabel ? `Saved ${saveTimeLabel}` : 'Cloud ready'}</span>
+        <span>{cloudSaveTimeLabel ? `Cloud saved ${cloudSaveTimeLabel}` : 'Cloud ready'}</span>
       </div>
     );
   };
