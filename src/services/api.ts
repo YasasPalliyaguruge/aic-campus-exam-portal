@@ -26,6 +26,36 @@ interface StudentSubmissionContext {
   serverNowMs: number;
 }
 
+interface ScreenCaptureProofContext {
+  imageBase64: string;
+  contentType: string;
+  size: number;
+  serverNowMs: number;
+  session: {
+    id: string;
+    studentId: string;
+    examId: string;
+  };
+  student: {
+    id: string;
+    studentId?: string;
+    name: string;
+    email: string;
+  } | null;
+  exam: {
+    id: string;
+    title: string;
+  } | null;
+  screenCapture: {
+    requestId: string;
+    requestedAt: number | null;
+    requestedBy: string;
+    capturedAt: number | null;
+    displaySurface: string;
+    storagePath: string;
+  };
+}
+
 const callFunction = async <Request, Response>(name: string, data?: Request): Promise<Response> => {
   const callable = httpsCallable<Request, Response>(functions, name);
   const result = await callable((data || {}) as Request);
@@ -458,6 +488,9 @@ export const api = {
         deletedOldFrameObjects: number;
         serverNowMs: number;
       }>('cleanupProctorMedia', {});
+    },
+    getScreenCaptureProof: async (sessionId: string) => {
+      return await callFunction<{ sessionId: string }, ScreenCaptureProofContext>('getScreenCaptureProof', { sessionId });
     },
     subscribeToSession: (studentId: string, examId: string, callback: (session: StudentSession | null) => void) => {
       const sessionId = `${studentId}_${examId}`;

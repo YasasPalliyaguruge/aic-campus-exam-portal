@@ -50,6 +50,15 @@ export const ProctorView = () => {
   const sanitizeFileName = (value: string) =>
     value.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 90) || 'screen-capture-proof';
 
+  const blobFromBase64 = (base64: string, contentType: string) => {
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: contentType || 'image/jpeg' });
+  };
+
   const loadImageFromBlob = async (blob: Blob) => {
     const objectUrl = URL.createObjectURL(blob);
     try {
@@ -125,9 +134,9 @@ export const ProctorView = () => {
     }
 
     try {
-      const response = await fetch(withCacheBust(session.screenCapture.imageUrl, session.screenCapture.capturedAt));
-      if (!response.ok) throw new Error('Could not download the screenshot image.');
-      const blob = await response.blob();
+      const sessionId = `${session.studentId}_${session.examId}`;
+      const proof = await api.sessions.getScreenCaptureProof(sessionId);
+      const blob = blobFromBase64(proof.imageBase64, proof.contentType);
       const { image, objectUrl } = await loadImageFromBlob(blob);
 
       const pageWidth = Math.min(2560, Math.max(1400, image.naturalWidth || image.width));
@@ -159,19 +168,21 @@ export const ProctorView = () => {
       ctx.lineTo(pageWidth - margin, 158);
       ctx.stroke();
 
-      const capturedAt = session.screenCapture.capturedAt ? new Date(session.screenCapture.capturedAt) : null;
-      const requestedAt = session.screenCapture.requestedAt ? new Date(session.screenCapture.requestedAt) : null;
-      const generatedAt = new Date();
+      const capturedAt = proof.screenCapture.capturedAt ? new Date(proof.screenCapture.capturedAt) : null;
+      const requestedAt = proof.screenCapture.requestedAt ? new Date(proof.screenCapture.requestedAt) : null;
+      const generatedAt = new Date(proof.serverNowMs);
+      const proofStudent = proof.student || student;
+      const proofExam = proof.exam || exam;
       const rows = [
         ['Generated at', generatedAt.toLocaleString()],
         ['Captured at', capturedAt ? capturedAt.toLocaleString() : 'N/A'],
         ['Requested at', requestedAt ? requestedAt.toLocaleString() : 'N/A'],
-        ['Student', `${student?.name || session.studentId} (${student?.email || 'email unavailable'})`],
-        ['Student ID', student?.studentId || session.studentId],
-        ['Exam', `${exam?.title || session.examId} (${session.examId})`],
-        ['Session ID', `${session.studentId}_${session.examId}`],
-        ['Request ID', session.screenCapture.requestId || 'N/A'],
-        ['Display surface', session.screenCapture.displaySurface || 'N/A'],
+        ['Student', `${proofStudent?.name || session.studentId} (${proofStudent?.email || 'email unavailable'})`],
+        ['Student ID', proofStudent?.studentId || session.studentId],
+        ['Exam', `${proofExam?.title || session.examId} (${session.examId})`],
+        ['Session ID', proof.session.id],
+        ['Request ID', proof.screenCapture.requestId || 'N/A'],
+        ['Display surface', proof.screenCapture.displaySurface || 'N/A'],
       ];
 
       let y = 210;

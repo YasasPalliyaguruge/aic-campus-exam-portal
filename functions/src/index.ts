@@ -66,8 +66,16 @@ interface StudentSession {
   currentFramePath?: string;
   currentFrameUpdatedAt?: number;
   screenCapture?: {
+    requestId?: string;
+    requestedAt?: number;
+    requestedBy?: string;
+    status?: string;
     imageUrl?: string;
     storagePath?: string;
+    capturedAt?: number;
+    updatedAt?: number;
+    error?: string;
+    displaySurface?: string;
   };
 }
 
@@ -702,6 +710,79 @@ export const cleanupProctorMedia = onCall(async (request) => {
   await assertStaffProfile(uid);
 
   return cleanupProctorMediaInternal();
+});
+
+export const getScreenCaptureProof = onCall(async (request) => {
+  const uid = requireAuthUid(request.auth);
+  await assertStaffProfile(uid);
+
+  const sessionId = String(request.data?.sessionId || '');
+  if (!sessionId) throw new HttpsError('invalid-argument', 'A valid session is required.');
+
+  const sessionSnap = await db.collection('sessions').doc(sessionId).get();
+  if (!sessionSnap.exists) throw new HttpsError('not-found', 'Session was not found.');
+
+  const session = withId<StudentSession>(sessionSnap);
+  const screenCapture = session.screenCapture;
+  const expectedPath = `proctor-screenshots/${session.examId}/${session.studentId}/latest.jpg`;
+  const storagePath = screenCapture?.storagePath || extractStoragePathFromDownloadUrl(screenCapture?.imageUrl);
+
+  if (!screenCapture || screenCapture.status !== 'CAPTURED' || !storagePath) {
+    throw new HttpsError('failed-precondition', 'No captured screenshot is available for this session.');
+  }
+  if (storagePath !== expectedPath) {
+    throw new HttpsError('permission-denied', 'Screenshot path does not match this session.');
+  }
+
+  const storageBucket = getStorage(app).bucket(getDefaultStorageBucketName());
+  const file = storageBucket.file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError('not-found', 'The latest screenshot file was not found in Storage.');
+
+  const [metadata] = await file.getMetadata();
+  const contentType = String(metadata.contentType || '');
+  const size = Number(metadata.size || 0);
+  if (contentType !== 'image/jpeg' || size <= 0 || size > 6 * 1024 * 1024) {
+    throw new HttpsError('failed-precondition', 'Screenshot file metadata is invalid.');
+  }
+
+  const [buffer] = await file.download();
+  const [studentSnap, examSnap] = await Promise.all([
+    db.collection('users').doc(session.studentId).get(),
+    db.collection('exams').doc(session.examId).get(),
+  ]);
+  const student = studentSnap.exists ? withId<User>(studentSnap) : null;
+  const exam = examSnap.exists ? withId<Exam>(examSnap) : null;
+
+  return {
+    imageBase64: buffer.toString('base64'),
+    contentType,
+    size,
+    serverNowMs: Date.now(),
+    session: {
+      id: sessionId,
+      studentId: session.studentId,
+      examId: session.examId,
+    },
+    student: student ? {
+      id: student.id,
+      studentId: student.studentId,
+      name: student.name,
+      email: student.email,
+    } : null,
+    exam: exam ? {
+      id: exam.id,
+      title: exam.title,
+    } : null,
+    screenCapture: {
+      requestId: screenCapture.requestId || '',
+      requestedAt: screenCapture.requestedAt || null,
+      requestedBy: screenCapture.requestedBy || '',
+      capturedAt: screenCapture.capturedAt || null,
+      displaySurface: screenCapture.displaySurface || '',
+      storagePath,
+    },
+  };
 });
 
 export const scheduledProctorMediaCleanup = onSchedule('every 1 hours', async () => {
