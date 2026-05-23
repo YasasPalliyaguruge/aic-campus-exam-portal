@@ -3,6 +3,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 const app = getApps()[0] || initializeApp();
 const db = getFirestore(app, 'exam-portal');
@@ -609,11 +610,10 @@ export const logStudentViolation = onCall(async (request) => {
   };
 });
 
-export const cleanupProctorMedia = onCall(async (request) => {
-  const uid = requireAuthUid(request.auth);
-  await assertStaffProfile(uid);
-
+const cleanupProctorMediaInternal = async () => {
   const sessionsSnap = await db.collection('sessions').get();
+  const preservedScreenshotPaths = new Set<string>();
+  const preservedFramePaths = new Set<string>();
   let clearedSessionDocs = 0;
   let batch = db.batch();
   let batchCount = 0;
@@ -621,15 +621,36 @@ export const cleanupProctorMedia = onCall(async (request) => {
   for (const snap of sessionsSnap.docs) {
     const session = withId<StudentSession>(snap);
     const updates: Record<string, unknown> = {};
+    const sessionActive = session.status === 'IN_PROGRESS';
+    const expectedFramePath = `proctor-live-frames/${session.examId}/${session.studentId}/current.jpg`;
+    const expectedScreenshotPath = `proctor-screenshots/${session.examId}/${session.studentId}/latest.jpg`;
+
+    if (sessionActive) {
+      preservedFramePaths.add(expectedFramePath);
+      preservedScreenshotPaths.add(expectedScreenshotPath);
+    }
 
     if (typeof session.currentFrame === 'string' && session.currentFrame.startsWith('data:image/')) {
       updates.currentFrame = FieldValue.delete();
       updates.currentFramePath = FieldValue.delete();
       updates.currentFrameUpdatedAt = FieldValue.delete();
     }
+    if (!sessionActive && (session.currentFrame || session.currentFramePath || session.currentFrameUpdatedAt)) {
+      updates.currentFrame = FieldValue.delete();
+      updates.currentFramePath = FieldValue.delete();
+      updates.currentFrameUpdatedAt = FieldValue.delete();
+    }
+    if (sessionActive && session.currentFramePath && session.currentFramePath !== expectedFramePath) {
+      updates.currentFrame = FieldValue.delete();
+      updates.currentFramePath = FieldValue.delete();
+      updates.currentFrameUpdatedAt = FieldValue.delete();
+    }
 
     const screenCapturePath = session.screenCapture?.storagePath;
-    if (screenCapturePath && !screenCapturePath.endsWith('/latest.jpg')) {
+    if (!sessionActive && session.screenCapture) {
+      updates.screenCapture = FieldValue.delete();
+    }
+    if (sessionActive && screenCapturePath && screenCapturePath !== expectedScreenshotPath) {
       updates.screenCapture = FieldValue.delete();
     }
 
@@ -649,11 +670,11 @@ export const cleanupProctorMedia = onCall(async (request) => {
 
   const storageBucket = getStorage(app).bucket(getDefaultStorageBucketName());
   const [screenshotFiles] = await storageBucket.getFiles({ prefix: 'proctor-screenshots/' });
-  const oldScreenshotFiles = screenshotFiles.filter(file => !file.name.endsWith('/latest.jpg'));
+  const oldScreenshotFiles = screenshotFiles.filter(file => !preservedScreenshotPaths.has(file.name));
   await Promise.all(oldScreenshotFiles.map(file => file.delete({ ignoreNotFound: true })));
 
   const [frameFiles] = await storageBucket.getFiles({ prefix: 'proctor-live-frames/' });
-  const oldFrameFiles = frameFiles.filter(file => !file.name.endsWith('/current.jpg'));
+  const oldFrameFiles = frameFiles.filter(file => !preservedFramePaths.has(file.name));
   await Promise.all(oldFrameFiles.map(file => file.delete({ ignoreNotFound: true })));
 
   return {
@@ -662,6 +683,17 @@ export const cleanupProctorMedia = onCall(async (request) => {
     deletedOldFrameObjects: oldFrameFiles.length,
     serverNowMs: Date.now(),
   };
+};
+
+export const cleanupProctorMedia = onCall(async (request) => {
+  const uid = requireAuthUid(request.auth);
+  await assertStaffProfile(uid);
+
+  return cleanupProctorMediaInternal();
+});
+
+export const scheduledProctorMediaCleanup = onSchedule('every 1 hours', async () => {
+  await cleanupProctorMediaInternal();
 });
 
 export const getLatestStudentSubmission = onCall(async (request) => {
