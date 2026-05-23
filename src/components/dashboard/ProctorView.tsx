@@ -15,8 +15,17 @@ export const ProctorView = () => {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const { modalState, showModal, hideModal } = useModal();
   const cleanupStartedRef = useRef(false);
+  const [freshnessNow, setFreshnessNow] = useState(() => getServerTime());
 
   const activeSessions = sessions.filter(s => s.status === 'IN_PROGRESS');
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setFreshnessNow(getServerTime());
+    }, 10000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (cleanupStartedRef.current) return;
@@ -48,7 +57,7 @@ export const ProctorView = () => {
   };
 
   const isFrameFresh = (session: StudentSession) =>
-    Boolean(session.currentFrame && session.currentFrameUpdatedAt && getServerTime() - session.currentFrameUpdatedAt < 45000);
+    Boolean(session.currentFrame && session.currentFrameUpdatedAt && freshnessNow - session.currentFrameUpdatedAt < 45000);
 
   const sanitizeFileName = (value: string) =>
     value.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 90) || 'screen-capture-proof';
@@ -352,7 +361,7 @@ export const ProctorView = () => {
           
           return (
             <Card 
-              key={session.studentId} 
+              key={`${session.studentId}_${session.examId}`}
               noPadding 
               className="overflow-hidden group border-gray-300 dark:border-gray-700 shadow-lg cursor-pointer hover:ring-2 hover:ring-violet-500 transition-all" 
               onClick={() => {
@@ -500,8 +509,10 @@ export const ProctorView = () => {
                         <span className="mt-1 text-xs text-gray-400">The student is blocked until a fresh frame arrives.</span>
                       </div>
                     )}
-                    <div className="absolute top-4 left-4 bg-red-600 text-white text-xs px-2 py-1 rounded animate-pulse font-bold">
-                      LIVE
+                    <div className={`absolute top-4 left-4 text-white text-xs px-2 py-1 rounded font-bold ${
+                      isFrameFresh(selectedSession) ? 'bg-red-600 animate-pulse' : 'bg-amber-600'
+                    }`}>
+                      {isFrameFresh(selectedSession) ? 'LIVE' : 'PENDING'}
                     </div>
                   </div>
 

@@ -1158,6 +1158,7 @@ export const ActiveExam = () => {
   };
 
   const toggleReferenceDocument = async () => {
+    if (!canUseExamControls()) return;
     if (!activeExamData) return;
     if (isSplitView) {
       setIsSplitView(false);
@@ -1212,6 +1213,16 @@ export const ActiveExam = () => {
 
   const handleSubmit = async (stuId = activeExamData?.session.studentId, exId = activeExamData?.exam.id, finalAnswers = answers, finalFiles = uploadedFiles, skipState = false) => {
      if (!stuId || !exId) return;
+     if (!skipState && !canUseExamControls()) {
+       showModal({
+         title: 'Proctoring Required',
+         message: 'Your camera feed and screen sharing must be active before you can manually submit the exam.',
+         type: 'warning',
+         showCancel: false,
+         confirmText: 'OK',
+       });
+       return;
+     }
      
      // Only show confirmation for manual submissions (not auto-submit)
      if (!skipState && activeExamData) {
