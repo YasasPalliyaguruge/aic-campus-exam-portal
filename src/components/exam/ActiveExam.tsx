@@ -30,6 +30,7 @@ const CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS = 3000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 10 * 60 * 1000;
 const CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD = 300;
 const CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD = 20;
+const TRUSTED_TIME_RESYNC_MS = 5 * 60 * 1000;
 
 const sanitizeStorageFileName = (fileName: string) =>
   fileName
@@ -923,19 +924,17 @@ export const ActiveExam = () => {
 
   useEffect(() => () => stopScreenShare(), []);
 
-  // --- 5. Warnings Listener + Schedule/Time Extension Checker ---
+  // --- 5. Trusted Time Resync + Scheduled Window Checker ---
   useEffect(() => {
     if (initStatus !== 'READY' || !activeExamData) return;
 
-    // Light trusted refresh for schedule changes and server-time resync. Session changes arrive via direct listener below.
-    const warningInterval = setInterval(async () => {
+    // Light trusted-time resync. Session changes arrive via the direct listener below.
+    const trustedTimeInterval = setInterval(async () => {
       try {
         const examData = activeExamDataRef.current;
         if (!examData) return;
-        // Fetch the latest trusted student-scoped session and exam data
-        const context = await api.student.getActiveExamContext(examData.exam.id);
-        const currentSession = context.session;
-        const currentExam = context.exam;
+        await api.student.getTrustedTime();
+        const currentExam = examData.exam;
         
         // ===== CHECK SCHEDULED END TIME =====
         const scheduledEndTime = currentExam?.scheduledEndMs || (currentExam?.scheduledEnd ? new Date(currentExam.scheduledEnd).getTime() : null);
@@ -961,78 +960,13 @@ export const ActiveExam = () => {
           }
         }
         
-        if (currentSession) {
-           // Check for Termination / Status Change
-           if (currentSession.status === 'SUBMITTED' || currentSession.status === 'COMPLETED') {
-              // If the session was terminated externally (by proctor) and we haven't submitted locally yet,
-              // we MUST save the current answers before leaving.
-              if (examData.session.status !== 'SUBMITTED' && examData.session.status !== 'COMPLETED') {
-                  console.log("⚠️ Session terminated externally. Saving final answers...");
-                  try {
-                    // Use the REF to get the latest answers since state might be stale in this closure
-                    await api.sessions.submit(examData.session.studentId, examData.exam.id, answersRef.current, uploadedFilesRef.current);
-                  } catch (err) {
-                    console.error("Failed to save final answers on termination:", err);
-                  }
-              }
-
-              showModal({
-                title: 'Session Ended',
-                message: 'Your exam has been submitted or terminated by the proctor.',
-                type: 'info',
-                showCancel: false,
-                confirmText: 'OK',
-                onConfirm: () => navigate('/student/completed'),
-              });
-              return;
-           }
-
-           // ===== CHECK FOR EXTRA TIME GRANTED =====
-           const currentExtra = currentSession.extraTimeMinutes || 0;
-            const previousExtra = examData.session.extraTimeMinutes || 0;
-           if (currentExtra > previousExtra) {
-              const addedMinutes = currentExtra - previousExtra;
-              console.log(`🎁 Extra time granted: +${addedMinutes} minutes`);
-              showModal({
-                title: '🎁 Extra Time Granted!',
-                message: `Great news! You have been granted ${addedMinutes} extra minute${addedMinutes > 1 ? 's' : ''} for this exam.`,
-                type: 'success',
-                showCancel: false,
-                confirmText: 'Continue',
-              });
-              
-              // Update the timer with new extra time
-              setTimeLeft(prev => {
-                if (prev === null) return null;
-                return prev + (addedMinutes * 60);
-              });
-           }
-
-           // Check for Warnings
-            if (currentSession.warnings && currentSession.warnings.length > (examData.session.warnings?.length || 0)) {
-              // New warning found!
-              const newWarnings = currentSession.warnings.slice(examData.session.warnings?.length || 0);
-              newWarnings.forEach(w => {
-                showModal({
-                  title: '⚠️ Proctor Warning',
-                  message: w,
-                  type: 'warning',
-                  showCancel: false,
-                  confirmText: 'I Understand',
-                });
-              });
-           }
-           
-           // Update local state to keep in sync
-           setActiveExamData(prev => prev ? ({...prev, session: currentSession}) : null);
-        }
       } catch (e) {
         // silent fail
       }
-    }, 60000);
+    }, TRUSTED_TIME_RESYNC_MS);
 
-    return () => clearInterval(warningInterval);
-  }, [initStatus]);
+    return () => clearInterval(trustedTimeInterval);
+  }, [initStatus, activeExamData?.exam.id]);
 
   useEffect(() => {
     if (initStatus !== 'READY' || !activeExamData) return;

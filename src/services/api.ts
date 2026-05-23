@@ -513,6 +513,20 @@ export const api = {
       return onSnapshot(q, (snapshot) => {
         callback(convertSnapshot<StudentSession>(snapshot));
       });
+    },
+    subscribeByStatuses: (statuses: StudentSession['status'][], callback: (sessions: StudentSession[]) => void) => {
+      if (statuses.length === 0) {
+        callback([]);
+        return () => {};
+      }
+
+      const sessionsQuery = statuses.length === 1
+        ? query(collection(db, 'sessions'), where('status', '==', statuses[0]))
+        : query(collection(db, 'sessions'), where('status', 'in', statuses));
+
+      return onSnapshot(sessionsQuery, (snapshot) => {
+        callback(convertSnapshot<StudentSession>(snapshot));
+      });
     }
   }
 };

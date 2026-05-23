@@ -27,6 +27,43 @@ import { auth as firebaseAuth } from './firebase';
 // Storage key for persisting auth state
 const AUTH_STORAGE_KEY = 'exam_portal_auth';
 
+type SessionStatus = StudentSession['status'];
+
+const getSessionKey = (session: StudentSession) => session.id || `${session.studentId}_${session.examId}`;
+
+const getRealtimeSessionStatuses = (pathname: string): SessionStatus[] | null => {
+  if (pathname === '/dashboard') {
+    return ['IN_PROGRESS', 'SUBMITTED', 'COMPLETED'];
+  }
+
+  if (pathname.startsWith('/dashboard/proctor')) {
+    return ['IN_PROGRESS'];
+  }
+
+  if (pathname.startsWith('/dashboard/review') || pathname.startsWith('/dashboard/grading')) {
+    return ['SUBMITTED', 'COMPLETED'];
+  }
+
+  return null;
+};
+
+const mergeScopedSessions = (
+  currentSessions: StudentSession[],
+  scopedSessions: StudentSession[],
+  scopedStatuses: SessionStatus[],
+) => {
+  const scopedStatusSet = new Set(scopedStatuses);
+  const scopedSessionKeys = new Set(scopedSessions.map(getSessionKey));
+  const merged = new Map<string, StudentSession>();
+
+  currentSessions
+    .filter(session => !scopedStatusSet.has(session.status) || scopedSessionKeys.has(getSessionKey(session)))
+    .forEach(session => merged.set(getSessionKey(session), session));
+
+  scopedSessions.forEach(session => merged.set(getSessionKey(session), session));
+  return Array.from(merged.values());
+};
+
 const App = () => {
   const [auth, setAuth] = useState<AuthState>({ user: null, isAuthenticated: false });
   const [users, setUsers] = useState<User[]>([]);
@@ -106,21 +143,17 @@ const App = () => {
     restoreSession();
   }, []);
 
-  // Real-time session subscription
+  // Real-time session subscription for the staff pages that need live session state.
   useEffect(() => {
     if (!auth.isAuthenticated || auth.user?.role === UserRole.STUDENT) return;
-    const isRealtimeSessionRoute =
-      location.pathname === '/dashboard' ||
-      location.pathname.startsWith('/dashboard/proctor') ||
-      location.pathname.startsWith('/dashboard/review') ||
-      location.pathname.startsWith('/dashboard/grading');
+    const realtimeStatuses = getRealtimeSessionStatuses(location.pathname);
 
-    if (!isRealtimeSessionRoute) return;
+    if (!realtimeStatuses) return;
 
     console.log('🔄 Setting up real-time session subscription...');
-    const unsubscribe = api.sessions.subscribe((updatedSessions) => {
+    const unsubscribe = api.sessions.subscribeByStatuses(realtimeStatuses, (updatedSessions) => {
       console.log('📡 Session update received:', updatedSessions.length, 'sessions');
-      setSessions(updatedSessions);
+      setSessions(previousSessions => mergeScopedSessions(previousSessions, updatedSessions, realtimeStatuses));
     });
 
     return () => {
