@@ -26,9 +26,9 @@ type LocalExamDraft = {
 
 type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offline' | 'error';
 
-const CLOUD_AUTOSAVE_DEBOUNCE_MS = 10000;
+const CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS = 3000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 10 * 60 * 1000;
-const CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD = 500;
+const CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD = 300;
 const CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD = 20;
 
 const sanitizeStorageFileName = (fileName: string) =>
@@ -63,6 +63,7 @@ export const ActiveExam = () => {
   const uploadedFilesRef = useRef<UploadedExamFile[]>([]);
   const frameUploadInFlightRef = useRef(false);
   const autosaveTimerRef = useRef<number | null>(null);
+  const autosaveTimerModeRef = useRef<'threshold' | 'backstop' | null>(null);
   const lastCloudSaveAtRef = useRef(0);
   const draftRevisionRef = useRef(0);
   const pendingCloudSaveRef = useRef(false);
@@ -451,6 +452,7 @@ export const ActiveExam = () => {
     dirtyTextCharCountRef.current = 0;
     dirtyAnswerChangeCountRef.current = 0;
     pendingCloudSaveStartedAtRef.current = 0;
+    autosaveTimerModeRef.current = null;
   };
 
   const saveDraftToCloud = async (reason = 'autosave') => {
@@ -516,20 +518,27 @@ export const ActiveExam = () => {
       return;
     }
     setDraftSaveState(prev => ({ ...prev, phase: 'queued' }));
-    if (autosaveTimerRef.current) {
-      window.clearTimeout(autosaveTimerRef.current);
-    }
-
     const lastCloudBaseline = lastCloudSaveAtRef.current || pendingCloudSaveStartedAtRef.current || Date.now();
     const elapsed = Date.now() - lastCloudBaseline;
     const reachedChangeThreshold =
       dirtyTextCharCountRef.current >= CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD ||
       dirtyAnswerChangeCountRef.current >= CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD;
+
+    if (autosaveTimerRef.current) {
+      if (autosaveTimerModeRef.current === 'threshold') return;
+      if (!reachedChangeThreshold) return;
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      autosaveTimerModeRef.current = null;
+    }
+
     const delay = reachedChangeThreshold
-      ? CLOUD_AUTOSAVE_DEBOUNCE_MS
-      : Math.max(CLOUD_AUTOSAVE_MAX_WAIT_MS - elapsed, CLOUD_AUTOSAVE_DEBOUNCE_MS);
+      ? CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS
+      : Math.max(CLOUD_AUTOSAVE_MAX_WAIT_MS - elapsed, CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS);
+    autosaveTimerModeRef.current = reachedChangeThreshold ? 'threshold' : 'backstop';
     autosaveTimerRef.current = window.setTimeout(() => {
       autosaveTimerRef.current = null;
+      autosaveTimerModeRef.current = null;
       saveDraftToCloud(reachedChangeThreshold ? 'change-threshold' : reason);
     }, delay);
   };
@@ -542,6 +551,7 @@ export const ActiveExam = () => {
       if (autosaveTimerRef.current) {
         window.clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
+        autosaveTimerModeRef.current = null;
       }
       saveDraftToCloud('forced');
     } else {
@@ -1150,6 +1160,7 @@ export const ActiveExam = () => {
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
+      autosaveTimerModeRef.current = null;
     }
     persistLocalDraft(
       activeExamDataRef.current.session.studentId,
@@ -1484,7 +1495,7 @@ export const ActiveExam = () => {
       return (
         <div className={`${commonClass} bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300`} title="Your answer is saved on this device and queued for cloud sync.">
           <Save size={14} />
-          <span>Cloud pending</span>
+          <span>Locally saved, cloud pending</span>
           <span className="text-blue-600 dark:text-blue-300/80">· {cloudTimeText}</span>
         </div>
       );
