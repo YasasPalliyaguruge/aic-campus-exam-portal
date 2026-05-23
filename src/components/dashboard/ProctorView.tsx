@@ -47,6 +47,9 @@ export const ProctorView = () => {
     return `${url}${url.includes('?') ? '&' : '?'}t=${timestamp}`;
   };
 
+  const isFrameFresh = (session: StudentSession) =>
+    Boolean(session.currentFrame && session.currentFrameUpdatedAt && getServerTime() - session.currentFrameUpdatedAt < 45000);
+
   const sanitizeFileName = (value: string) =>
     value.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 90) || 'screen-capture-proof';
 
@@ -359,11 +362,12 @@ export const ProctorView = () => {
             >
               <div className="aspect-video bg-gray-900 relative">
                 {/* Live Stream Frame */}
-                {session.currentFrame ? (
+                {isFrameFresh(session) ? (
                   <img src={withCacheBust(session.currentFrame, session.currentFrameUpdatedAt)} alt="Live Stream" className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-500">
+                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
                     <Video size={32} className="animate-pulse" />
+                    <span className="mt-2 text-xs font-bold">Waiting for camera feed</span>
                   </div>
                 )}
                 
@@ -376,7 +380,8 @@ export const ProctorView = () => {
                      </div>
                    )}
                    <div className="bg-black/60 backdrop-blur text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                     <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"/> Live
+                      <div className={`w-1.5 h-1.5 rounded-full ${isFrameFresh(session) ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}`}/>
+                      {isFrameFresh(session) ? 'Live' : 'Pending'}
                    </div>
                 </div>
 
@@ -486,11 +491,13 @@ export const ProctorView = () => {
                {/* Left Col: Live Feed & Stats */}
                <div className="space-y-6">
                   <div className="aspect-video bg-black rounded-xl overflow-hidden border-2 border-gray-800 relative shadow-lg">
-                    {selectedSession.currentFrame ? (
+                    {isFrameFresh(selectedSession) ? (
                       <img src={withCacheBust(selectedSession.currentFrame, selectedSession.currentFrameUpdatedAt)} alt="Live Stream" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-500">
+                      <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
                         <Video size={48} className="animate-pulse" />
+                        <span className="mt-3 text-sm font-bold">Waiting for camera feed</span>
+                        <span className="mt-1 text-xs text-gray-400">The student is blocked until a fresh frame arrives.</span>
                       </div>
                     )}
                     <div className="absolute top-4 left-4 bg-red-600 text-white text-xs px-2 py-1 rounded animate-pulse font-bold">

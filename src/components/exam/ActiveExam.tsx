@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop, Cloud, CloudOff, Save, Flag } from 'lucide-react';
+import { ShieldCheck, Clock, ArrowRight, CheckCircle, CheckSquare, Circle, AlertTriangle, Loader2, Menu, X, Grid, FileText, Maximize2, Minimize2, Upload, File, Trash2, Sun, Moon, Laptop, Cloud, CloudOff, Save, Flag, Video } from 'lucide-react';
 import { Exam, StudentSession, UserRole, QuestionType, ScreenCaptureState } from '../../types';
 import { useApp } from '../../contexts/AppContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -25,12 +25,15 @@ type LocalExamDraft = {
 };
 
 type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offline' | 'error';
+type WebcamProctorStatus = 'idle' | 'starting' | 'uploading' | 'live' | 'denied' | 'error';
 
 const CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS = 3000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 10 * 60 * 1000;
 const CLOUD_AUTOSAVE_TEXT_CHAR_THRESHOLD = 300;
 const CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD = 20;
 const TRUSTED_TIME_RESYNC_MS = 5 * 60 * 1000;
+const WEBCAM_FRAME_INTERVAL_MS = 15 * 1000;
+const WEBCAM_READY_TIMEOUT_MS = 5 * 1000;
 
 const sanitizeStorageFileName = (fileName: string) =>
   fileName
@@ -91,6 +94,10 @@ export const ActiveExam = () => {
     cloudSavedAt: number | null;
   }>({ phase: 'idle', localSavedAt: null, cloudSavedAt: null });
   const [screenShareStatus, setScreenShareStatus] = useState<'idle' | 'active' | 'stopped' | 'denied' | 'unsupported'>('idle');
+  const [webcamStatus, setWebcamStatus] = useState<WebcamProctorStatus>('idle');
+  const [webcamMessage, setWebcamMessage] = useState('Camera feed is starting...');
+  const [webcamRetryNonce, setWebcamRetryNonce] = useState(0);
+  const [lastWebcamFrameAt, setLastWebcamFrameAt] = useState<number | null>(null);
   
   // Modal state for beautiful dialogs
   const { modalState, showModal, hideModal } = useModal();
@@ -779,139 +786,152 @@ export const ActiveExam = () => {
     };
   }, [initStatus, activeExamData?.exam.id, activeExamData?.session.studentId]);
 
-  // --- 4. Webcam ---
+  // --- 4. Required Webcam Feed Gate ---
   useEffect(() => {
     if (initStatus !== 'READY') return;
-    
+
     let streamInterval: ReturnType<typeof setInterval> | null = null;
-    let startupTimer: ReturnType<typeof setTimeout> | null = null;
-    
-    const startCam = async () => {
+    let isStopped = false;
+
+    const waitForVideoFrame = async (video: HTMLVideoElement) => {
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) return true;
+
+      return await new Promise<boolean>((resolve) => {
+        const startedAt = Date.now();
+        const timer = window.setInterval(() => {
+          if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+            window.clearInterval(timer);
+            resolve(true);
+            return;
+          }
+          if (Date.now() - startedAt > WEBCAM_READY_TIMEOUT_MS) {
+            window.clearInterval(timer);
+            resolve(false);
+          }
+        }, 100);
+      });
+    };
+
+    const uploadWebcamFrame = async (showUploadingState = false) => {
+      if (frameUploadInFlightRef.current || isStopped) return false;
+
+      const examData = activeExamDataRef.current;
+      const video = videoRef.current;
+      if (!video || !examData) {
+        throw new Error('Camera or exam session is not ready.');
+      }
+
+      const isReady = await waitForVideoFrame(video);
+      if (!isReady) {
+        throw new Error('Camera feed did not become ready in time.');
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 240;
+      canvas.height = 180;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not prepare the camera frame.');
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frameBlob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/jpeg', 0.55);
+      });
+
+      if (!frameBlob || frameBlob.size < 500) {
+        throw new Error('Camera frame was blank.');
+      }
+      if (frameBlob.size > 120000) {
+        throw new Error('Camera frame was too large to upload.');
+      }
+
+      frameUploadInFlightRef.current = true;
       try {
-        console.log('🎥 Requesting webcam access...');
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480 } 
-        });
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(e => console.error('Video play failed:', e));
-          console.log('✅ Webcam stream started successfully');
-          
-          // Wait 2 seconds for video to fully initialize before starting frame capture
-          startupTimer = setTimeout(() => {
-            console.log('📸 Starting frame capture...');
-            
-            streamInterval = setInterval(async () => {
-              try {
-                if (frameUploadInFlightRef.current) return;
-                const examData = activeExamDataRef.current;
-                if (!videoRef.current || !examData) {
-                  console.warn('⚠️ Video ref or exam data missing');
-                  return;
-                }
-                
-                const video = videoRef.current;
-                
-                // Check if video is actually playing
-                if (video.readyState < 2) {
-                  console.warn('⚠️ Video not ready, readyState:', video.readyState);
-                  return;
-                }
-                
-                if (video.videoWidth === 0 || video.videoHeight === 0) {
-                  console.warn('⚠️ Video dimensions invalid:', video.videoWidth, video.videoHeight);
-                  return;
-                }
-                
-                // Create canvas and capture frame
-                const canvas = document.createElement('canvas');
-                canvas.width = 240;
-                canvas.height = 180;
-                const ctx = canvas.getContext('2d');
-                
-                if (!ctx) {
-                  console.error('❌ Could not get canvas context');
-                  return;
-                }
-                
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const frameBlob = await new Promise<Blob | null>((resolve) => {
-                  canvas.toBlob(resolve, 'image/jpeg', 0.55);
-                });
-                
-                // Verify we have actual image data
-                if (!frameBlob || frameBlob.size < 500) {
-                  console.warn('⚠️ Frame data too small, likely blank');
-                  return;
-                }
-                
-                console.log('📤 Uploading frame... (size:', Math.round(frameBlob.size / 1024), 'KB)');
-                if (frameBlob.size > 120000) {
-                  console.warn('Frame data too large, skipping upload');
-                  return;
-                }
-                
-                frameUploadInFlightRef.current = true;
-                const framePath = `proctor-live-frames/${examData.exam.id}/${examData.session.studentId}/current.jpg`;
-                const frameRef = ref(storage, framePath);
-                await uploadBytes(frameRef, frameBlob, {
-                  contentType: 'image/jpeg',
-                  customMetadata: {
-                    ownerUid: firebaseAuth.currentUser?.uid || '',
-                    examId: examData.exam.id,
-                    studentId: examData.session.studentId,
-                    requestId: 'live-frame',
-                    purpose: 'live-frame',
-                  },
-                });
-                const frameUrl = await getDownloadURL(frameRef);
-                await api.sessions.updateFrame(
-                  examData.session.studentId,
-                  examData.exam.id,
-                  frameUrl,
-                  framePath
-                );
-                
-                console.log('✅ Frame uploaded successfully!');
-                
-              } catch (error) {
-                console.error('❌ Frame capture/upload failed:', error);
-              }
-                frameUploadInFlightRef.current = false;
-            }, 15000); // Every 15 seconds
-            
-          }, 2000); // Wait 2 seconds before starting
+        if (showUploadingState) {
+          setWebcamStatus('uploading');
+          setWebcamMessage('Sending camera feed to the proctor...');
         }
-      } catch (e) {
-        console.error('❌ Camera access denied or failed:', e);
+        const framePath = `proctor-live-frames/${examData.exam.id}/${examData.session.studentId}/current.jpg`;
+        const frameRef = ref(storage, framePath);
+        await uploadBytes(frameRef, frameBlob, {
+          contentType: 'image/jpeg',
+          customMetadata: {
+            ownerUid: firebaseAuth.currentUser?.uid || '',
+            examId: examData.exam.id,
+            studentId: examData.session.studentId,
+            requestId: 'live-frame',
+            purpose: 'live-frame',
+          },
+        });
+        const frameUrl = await getDownloadURL(frameRef);
+        await api.sessions.updateFrame(
+          examData.session.studentId,
+          examData.exam.id,
+          frameUrl,
+          framePath
+        );
+
+        const now = getServerTime();
+        setLastWebcamFrameAt(now);
+        setWebcamStatus('live');
+        setWebcamMessage('Camera feed is live for the proctor.');
+        return true;
+      } finally {
+        frameUploadInFlightRef.current = false;
+      }
+    };
+
+    const startRequiredWebcam = async () => {
+      try {
+        setWebcamStatus('starting');
+        setWebcamMessage('Requesting camera permission...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+        });
+
+        if (!videoRef.current) {
+          stream.getTracks().forEach(track => track.stop());
+          throw new Error('Camera preview is not ready.');
+        }
+
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        await uploadWebcamFrame(true);
+
+        streamInterval = setInterval(async () => {
+          try {
+            await uploadWebcamFrame(false);
+          } catch (error: any) {
+            console.error('Frame capture/upload failed:', error);
+            setWebcamStatus('error');
+            setWebcamMessage(error?.message || 'Camera feed upload failed. Retry before continuing.');
+          }
+        }, WEBCAM_FRAME_INTERVAL_MS);
+      } catch (error: any) {
+        console.error('Camera access or upload failed:', error);
+        setWebcamStatus(error?.name === 'NotAllowedError' ? 'denied' : 'error');
+        setWebcamMessage(error?.message || 'Camera access or upload failed. Allow camera access and retry before continuing.');
         showModal({
-          title: '📹 Camera Access Required',
-          message: 'Camera access is required for this proctored exam. Please grant camera permission in your browser settings and refresh the page.',
+          title: 'Camera Feed Required',
+          message: 'The exam is paused until your webcam feed is visible to the proctor. Please allow camera access and retry.',
           type: 'error',
           showCancel: false,
           confirmText: 'I Understand',
         });
       }
     };
-    
-    startCam();
 
-    // Cleanup
+    startRequiredWebcam();
+
     return () => {
-      if (startupTimer) {
-        clearTimeout(startupTimer);
-      }
-      if (streamInterval) {
-        clearInterval(streamInterval);
-      }
-      if (videoRef.current && videoRef.current.srcObject) {
+      isStopped = true;
+      if (streamInterval) clearInterval(streamInterval);
+      if (videoRef.current?.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(t => t.stop());
-        console.log('🛑 Webcam stream stopped');
+        stream.getTracks().forEach(track => track.stop());
+        videoRef.current.srcObject = null;
       }
     };
-  }, [initStatus, activeExamData?.exam.id]);
+  }, [initStatus, activeExamData?.exam.id, activeExamData?.session.studentId, webcamRetryNonce]);
 
   // --- 4b. Full-screen share availability for on-demand proctor screenshots ---
   useEffect(() => {
@@ -1056,13 +1076,19 @@ export const ActiveExam = () => {
 
 
   // --- Handlers ---
+  const isCameraFeedLive = webcamStatus === 'live';
+  const isExamInteractionPaused = initStatus === 'READY' && (screenShareStatus !== 'active' || !isCameraFeedLive);
+  const canUseExamControls = () => screenShareStatus === 'active' && isCameraFeedLive;
+
   const goToQuestion = (nextIndex: number) => {
+    if (!canUseExamControls()) return;
     persistDraft(answersRef.current, uploadedFilesRef.current, true);
     setCurrentQuestionIndex(nextIndex);
     setIsNavOpen(false);
   };
 
   const handleAnswer = (val: any) => {
+    if (!canUseExamControls()) return;
     if (!activeExamData) return;
     const qId = activeExamData.exam.questions[currentQuestionIndex].id;
     const qType = activeExamData.exam.questions[currentQuestionIndex].type;
@@ -1106,6 +1132,7 @@ export const ActiveExam = () => {
   };
 
   const toggleFlagCurrentQuestion = () => {
+    if (!canUseExamControls()) return;
     if (!activeExamData) return;
     const qId = activeExamData.exam.questions[currentQuestionIndex].id;
     setFlaggedQuestionIds(prev => {
@@ -1250,6 +1277,10 @@ export const ActiveExam = () => {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canUseExamControls()) {
+      e.target.value = '';
+      return;
+    }
     if (!activeExamData || !e.target.files || !e.target.files[0]) return;
     
     const file = e.target.files[0];
@@ -1333,6 +1364,7 @@ export const ActiveExam = () => {
   };
 
   const removeFile = async (index: number) => {
+    if (!canUseExamControls()) return;
     showModal({
       title: 'Remove File',
       message: 'Are you sure you want to remove this uploaded file?',
@@ -1393,7 +1425,9 @@ export const ActiveExam = () => {
   const cloudSaveTimeLabel = draftSaveState.cloudSavedAt
     ? new Date(draftSaveState.cloudSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
-  const isScreenShareBlocking = screenShareStatus !== 'active';
+  const cameraTimeLabel = lastWebcamFrameAt
+    ? new Date(lastWebcamFrameAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '';
 
   const SaveStatusPill = () => {
     const commonClass = 'flex items-center gap-2 px-2.5 md:px-3 py-1.5 rounded-full border text-xs font-semibold whitespace-nowrap';
@@ -1524,6 +1558,37 @@ export const ActiveExam = () => {
     );
   };
 
+  const CameraFeedBlocker = () => {
+    if (screenShareStatus !== 'active' || isCameraFeedLive) return null;
+
+    const isRetrying = webcamStatus === 'starting' || webcamStatus === 'uploading';
+
+    return (
+      <div className="fixed inset-0 z-[75] flex items-center justify-center bg-gray-950/75 p-4 backdrop-blur-md">
+        <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-white p-6 text-center shadow-2xl dark:bg-gray-900">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            {isRetrying ? <Loader2 size={32} className="animate-spin" /> : <Video size={32} />}
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Camera Feed Required</h2>
+          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
+            The exam is paused until your webcam feed is uploaded and visible to the proctor.
+          </p>
+          <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-3 text-left text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100">
+            {webcamMessage}
+          </div>
+          <Button
+            className="mt-6 w-full"
+            onClick={() => setWebcamRetryNonce(value => value + 1)}
+            disabled={isRetrying}
+          >
+            {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
+            Retry Camera Feed
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-black flex flex-col font-sans select-none">
       {/* Header */}
@@ -1550,6 +1615,20 @@ export const ActiveExam = () => {
               <Save size={16} />
               <span className="hidden sm:inline">Save Now</span>
             </Button>
+
+            <div
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${
+                isCameraFeedLive
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
+                  : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
+              }`}
+              title={isCameraFeedLive ? `Camera feed uploaded ${cameraTimeLabel}` : webcamMessage}
+            >
+              {webcamStatus === 'starting' || webcamStatus === 'uploading'
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Video size={14} />}
+              <span className="hidden sm:inline">{isCameraFeedLive ? 'Camera Live' : 'Camera Required'}</span>
+            </div>
 
             {screenShareStatus === 'active' ? (
               <div
@@ -1613,8 +1692,9 @@ export const ActiveExam = () => {
 
       <ScreenShareNotice />
       <ScreenShareBlocker />
+      <CameraFeedBlocker />
 
-      <main className={`flex flex-1 gap-6 overflow-hidden h-full transition-all duration-300 ${isScreenShareBlocking ? 'pointer-events-none select-none blur-[2px] opacity-50' : ''}`}>
+      <main className={`flex flex-1 gap-6 overflow-hidden h-full transition-all duration-300 ${isExamInteractionPaused ? 'pointer-events-none select-none blur-[2px] opacity-50' : ''}`}>
         {/* PDF Panel */}
         {isSplitView && referenceDocumentUrl && (
           <div className="w-[45%] overflow-hidden">
