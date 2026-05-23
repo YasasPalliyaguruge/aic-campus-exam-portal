@@ -27,6 +27,9 @@ interface Exam {
   durationMinutes: number;
   scheduledStart?: string;
   scheduledEnd?: string;
+  scheduleTimeZone?: string;
+  scheduledStartLocal?: string;
+  scheduledEndLocal?: string;
   scheduledStartMs?: number;
   scheduledEndMs?: number;
   assignedStudents?: string[];
@@ -247,15 +250,30 @@ const getEndMs = (exam: Exam) => {
   return exam.scheduledEnd ? new Date(exam.scheduledEnd).getTime() : Number.MAX_SAFE_INTEGER;
 };
 
+const formatExamScheduleTime = (exam: Exam, timestampMs: number) => {
+  const timeZone = exam.scheduleTimeZone || 'Asia/Colombo';
+  try {
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone,
+      timeZoneName: 'short',
+    }).format(new Date(timestampMs));
+    return `${formatted} (${timeZone})`;
+  } catch {
+    return new Date(timestampMs).toISOString();
+  }
+};
+
 const assertWindowOpen = (exam: Exam, now: number) => {
   const startMs = getStartMs(exam);
   const endMs = getEndMs(exam);
 
   if (now < startMs) {
-    throw new HttpsError('failed-precondition', `Exam has not started yet. It opens at ${new Date(startMs).toLocaleString()}.`);
+    throw new HttpsError('failed-precondition', `Exam has not started yet. It opens at ${formatExamScheduleTime(exam, startMs)}.`);
   }
   if (now > endMs) {
-    throw new HttpsError('failed-precondition', `Exam has ended. It closed at ${new Date(endMs).toLocaleString()}.`);
+    throw new HttpsError('failed-precondition', `Exam has ended. It closed at ${formatExamScheduleTime(exam, endMs)}.`);
   }
 };
 
