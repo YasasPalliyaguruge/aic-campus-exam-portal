@@ -42,7 +42,7 @@ service firebase.storage {
 
     function isScreenCaptureFile() {
       return request.resource != null
-        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.size <= 6 * 1024 * 1024
         && request.resource.contentType == 'image/jpeg';
     }
 

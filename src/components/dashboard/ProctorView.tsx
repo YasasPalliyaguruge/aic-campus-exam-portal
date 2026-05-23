@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer, Camera, MonitorUp } from 'lucide-react';
+import { AlertTriangle, Video, X, ShieldAlert, Clock, User, Ban, Timer, Camera, MonitorUp, Download } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { api } from '../../services/api';
 import { getServerTime } from '../../services/serverTime';
+import { Exam, StudentSession, User as PortalUser } from '../../types';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -44,6 +45,192 @@ export const ProctorView = () => {
     if (!url) return '';
     if (!timestamp) return url;
     return `${url}${url.includes('?') ? '&' : '?'}t=${timestamp}`;
+  };
+
+  const sanitizeFileName = (value: string) =>
+    value.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 90) || 'screen-capture-proof';
+
+  const loadImageFromBlob = async (blob: Blob) => {
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Could not read the screenshot image.'));
+        img.src = objectUrl;
+      });
+      return { image, objectUrl };
+    } catch (error) {
+      URL.revokeObjectURL(objectUrl);
+      throw error;
+    }
+  };
+
+  const wrapText = (
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number,
+  ) => {
+    const words = text.split(/\s+/);
+    let line = '';
+    let cursorY = y;
+    words.forEach((word) => {
+      const testLine = line ? `${line} ${word}` : word;
+      if (ctx.measureText(testLine).width > maxWidth && line) {
+        ctx.fillText(line, x, cursorY);
+        line = word;
+        cursorY += lineHeight;
+      } else {
+        line = testLine;
+      }
+    });
+    if (line) ctx.fillText(line, x, cursorY);
+    return cursorY + lineHeight;
+  };
+
+  const drawMetadataRow = (
+    ctx: CanvasRenderingContext2D,
+    label: string,
+    value: string,
+    x: number,
+    y: number,
+    labelWidth: number,
+    valueWidth: number,
+  ) => {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '600 24px Arial, sans-serif';
+    ctx.fillText(label, x, y);
+    ctx.fillStyle = '#111827';
+    ctx.font = '24px Arial, sans-serif';
+    return wrapText(ctx, value || 'N/A', x + labelWidth, y, valueWidth, 34);
+  };
+
+  const handleDownloadScreenCaptureProof = async (
+    session: StudentSession,
+    student?: PortalUser,
+    exam?: Exam,
+  ) => {
+    if (!session.screenCapture?.imageUrl) {
+      showModal({
+        title: 'No Screenshot Available',
+        message: 'Capture a student screen first, then download the proof file.',
+        type: 'warning',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(withCacheBust(session.screenCapture.imageUrl, session.screenCapture.capturedAt));
+      if (!response.ok) throw new Error('Could not download the screenshot image.');
+      const blob = await response.blob();
+      const { image, objectUrl } = await loadImageFromBlob(blob);
+
+      const pageWidth = Math.min(2560, Math.max(1400, image.naturalWidth || image.width));
+      const margin = 80;
+      const imageWidth = pageWidth - (margin * 2);
+      const imageScale = imageWidth / (image.naturalWidth || image.width);
+      const imageHeight = Math.round((image.naturalHeight || image.height) * imageScale);
+      const metadataHeight = 610;
+      const footerHeight = 90;
+      const pageHeight = metadataHeight + imageHeight + footerHeight;
+      const canvas = document.createElement('canvas');
+      canvas.width = pageWidth;
+      canvas.height = pageHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not prepare proof canvas.');
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, pageWidth, pageHeight);
+      ctx.fillStyle = '#111827';
+      ctx.font = '700 42px Arial, sans-serif';
+      ctx.fillText('AIC Campus Exam Portal', margin, 78);
+      ctx.font = '700 34px Arial, sans-serif';
+      ctx.fillText('Screen Capture Evidence', margin, 124);
+
+      ctx.strokeStyle = '#e5e7eb';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(margin, 158);
+      ctx.lineTo(pageWidth - margin, 158);
+      ctx.stroke();
+
+      const capturedAt = session.screenCapture.capturedAt ? new Date(session.screenCapture.capturedAt) : null;
+      const requestedAt = session.screenCapture.requestedAt ? new Date(session.screenCapture.requestedAt) : null;
+      const generatedAt = new Date();
+      const rows = [
+        ['Generated at', generatedAt.toLocaleString()],
+        ['Captured at', capturedAt ? capturedAt.toLocaleString() : 'N/A'],
+        ['Requested at', requestedAt ? requestedAt.toLocaleString() : 'N/A'],
+        ['Student', `${student?.name || session.studentId} (${student?.email || 'email unavailable'})`],
+        ['Student ID', student?.studentId || session.studentId],
+        ['Exam', `${exam?.title || session.examId} (${session.examId})`],
+        ['Session ID', `${session.studentId}_${session.examId}`],
+        ['Request ID', session.screenCapture.requestId || 'N/A'],
+        ['Display surface', session.screenCapture.displaySurface || 'N/A'],
+      ];
+
+      let y = 210;
+      rows.forEach(([label, value]) => {
+        y = drawMetadataRow(ctx, label, value, margin, y, 240, pageWidth - (margin * 2) - 240);
+        y += 10;
+      });
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(margin - 2, metadataHeight - 2, imageWidth + 4, imageHeight + 4);
+      ctx.drawImage(image, margin, metadataHeight, imageWidth, imageHeight);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(margin, metadataHeight, imageWidth, imageHeight);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '22px Arial, sans-serif';
+      wrapText(
+        ctx,
+        'This proof file was generated locally by the proctor browser from the latest captured screenshot. No extra proof document was stored in Firestore.',
+        margin,
+        pageHeight - 44,
+        pageWidth - (margin * 2),
+        30,
+      );
+
+      canvas.toBlob((proofBlob) => {
+        URL.revokeObjectURL(objectUrl);
+        if (!proofBlob) {
+          showModal({
+            title: 'Download Failed',
+            message: 'Could not create the proof file. Please try again.',
+            type: 'error',
+            showCancel: false,
+            confirmText: 'OK',
+          });
+          return;
+        }
+        const url = URL.createObjectURL(proofBlob);
+        const link = document.createElement('a');
+        const capturedPart = capturedAt
+          ? capturedAt.toISOString().replace(/[:.]/g, '-')
+          : new Date().toISOString().replace(/[:.]/g, '-');
+        link.href = url;
+        link.download = `${sanitizeFileName(student?.name || session.studentId)}_${sanitizeFileName(exam?.title || session.examId)}_${capturedPart}_screen-proof.png`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, 'image/png');
+    } catch (error: any) {
+      showModal({
+        title: 'Download Failed',
+        message: error?.message || 'Could not create the screenshot proof file.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
+    }
   };
 
   const handleRequestScreenCapture = async (sessionId: string) => {
@@ -258,6 +445,8 @@ export const ProctorView = () => {
       {(() => {
         // Find session by unique ID (studentId_examId)
         const selectedSession = sessions.find(s => `${s.studentId}_${s.examId}` === selectedSessionId);
+        const selectedStudent = selectedSession ? users.find(u => u.id === selectedSession.studentId) : undefined;
+        const selectedExam = selectedSession ? exams.find(e => e.id === selectedSession.examId) : undefined;
         return selectedSession && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-white/80 dark:border-gray-800/80 backdrop-blur-xl animate-in zoom-in-95 fade-in duration-200">
@@ -265,11 +454,11 @@ export const ProctorView = () => {
             <div className="p-4 md:p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
               <div className="flex items-center gap-4">
                  <div className="w-12 h-12 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 font-bold text-xl">
-                    {users.find(u => u.id === selectedSession.studentId)?.avatar || <User />}
+                    {selectedStudent?.avatar || <User />}
                  </div>
                  <div>
                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-                     {users.find(u => u.id === selectedSession.studentId)?.name || selectedSession.studentId}
+                     {selectedStudent?.name || selectedSession.studentId}
                    </h3>
                    <p className="text-sm text-gray-500 flex items-center gap-2">
                      <span className="font-mono">{selectedSession.studentId}</span> • {exams.find(e => e.id === selectedSession.examId)?.title}
@@ -299,7 +488,7 @@ export const ProctorView = () => {
                   </div>
 
                   <Card noPadding className="overflow-hidden border-gray-200 dark:border-gray-800">
-                    <div className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 p-4">
+                    <div className="flex flex-col gap-3 border-b border-gray-100 dark:border-gray-800 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
                           <MonitorUp size={18} className="text-violet-500" /> On-Demand Screen Capture
@@ -308,14 +497,25 @@ export const ProctorView = () => {
                           {getScreenCaptureLabel(selectedSession.screenCapture?.status)}
                         </p>
                       </div>
-                      <Button
-                        size="sm"
-                        onClick={() => handleRequestScreenCapture(`${selectedSession.studentId}_${selectedSession.examId}`)}
-                        loading={selectedSession.screenCapture?.status === 'REQUESTED' || selectedSession.screenCapture?.status === 'CAPTURING'}
-                      >
-                        <Camera size={16} />
-                        Capture Now
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleRequestScreenCapture(`${selectedSession.studentId}_${selectedSession.examId}`)}
+                          loading={selectedSession.screenCapture?.status === 'REQUESTED' || selectedSession.screenCapture?.status === 'CAPTURING'}
+                        >
+                          <Camera size={16} />
+                          Capture Now
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!selectedSession.screenCapture?.imageUrl}
+                          onClick={() => handleDownloadScreenCaptureProof(selectedSession, selectedStudent, selectedExam)}
+                        >
+                          <Download size={16} />
+                          Download Proof
+                        </Button>
+                      </div>
                     </div>
                     <div className="bg-gray-950">
                       {selectedSession.screenCapture?.imageUrl ? (

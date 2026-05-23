@@ -280,7 +280,7 @@ export const ActiveExam = () => {
       throw new Error('The shared screen is not ready yet.');
     }
 
-    const maxWidth = 1600;
+    const maxWidth = 2560;
     const scale = Math.min(1, maxWidth / video.videoWidth);
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
@@ -293,7 +293,7 @@ export const ActiveExam = () => {
       canvas.toBlob(blob => {
         if (blob) resolve(blob);
         else reject(new Error('Could not encode the screenshot.'));
-      }, 'image/jpeg', 0.72);
+      }, 'image/jpeg', 0.88);
     });
   };
 
@@ -341,7 +341,7 @@ export const ActiveExam = () => {
       });
 
       const blob = await captureScreenBlob();
-      if (blob.size > 2 * 1024 * 1024) {
+      if (blob.size > 6 * 1024 * 1024) {
         throw new Error('Screenshot was too large to upload.');
       }
 
