@@ -612,6 +612,10 @@ export const logStudentViolation = onCall(async (request) => {
 
 const cleanupProctorMediaInternal = async () => {
   const sessionsSnap = await db.collection('sessions').get();
+  const examsSnap = await db.collection('exams').get();
+  const examsById = new Map(examsSnap.docs.map(snap => [snap.id, withId<Exam>(snap)]));
+  const now = Date.now();
+  const retentionAfterEndMs = 30 * 60 * 1000;
   const preservedScreenshotPaths = new Set<string>();
   const preservedFramePaths = new Set<string>();
   let clearedSessionDocs = 0;
@@ -621,7 +625,15 @@ const cleanupProctorMediaInternal = async () => {
   for (const snap of sessionsSnap.docs) {
     const session = withId<StudentSession>(snap);
     const updates: Record<string, unknown> = {};
-    const sessionActive = session.status === 'IN_PROGRESS';
+    const exam = examsById.get(session.examId);
+    const possibleEndTimes = [
+      exam?.scheduledEndMs,
+      session.startTime && exam?.durationMinutes
+        ? session.startTime + ((exam.durationMinutes + (session.extraTimeMinutes || 0)) * 60 * 1000)
+        : undefined,
+    ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    const mediaRetainUntil = possibleEndTimes.length ? Math.max(...possibleEndTimes) + retentionAfterEndMs : null;
+    const sessionActive = session.status === 'IN_PROGRESS' && (!mediaRetainUntil || now <= mediaRetainUntil);
     const expectedFramePath = `proctor-live-frames/${session.examId}/${session.studentId}/current.jpg`;
     const expectedScreenshotPath = `proctor-screenshots/${session.examId}/${session.studentId}/latest.jpg`;
 
