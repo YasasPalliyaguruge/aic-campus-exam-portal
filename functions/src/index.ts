@@ -547,6 +547,10 @@ export const submitStudentSession = onCall(async (request) => {
   if (session.isTerminated) throw new HttpsError('failed-precondition', 'This session was terminated by the proctor.');
 
   const now = Date.now();
+  if (session.status === 'SUBMITTED') {
+    return { session, serverNowMs: now };
+  }
+
   const windowEnd = getEndMs(exam);
   const individualEnd = session.startTime
     ? session.startTime + ((exam.durationMinutes * 60) + ((session.extraTimeMinutes || 0) * 60)) * 1000
@@ -600,13 +604,29 @@ export const saveStudentDraft = onCall(async (request) => {
 
   const now = Date.now();
   assertWindowOpen(exam, now);
+
+  const windowEnd = getEndMs(exam);
+  const individualEnd = session.startTime
+    ? session.startTime + ((exam.durationMinutes * 60) + ((session.extraTimeMinutes || 0) * 60)) * 1000
+    : windowEnd;
+  const effectiveEnd = Math.min(windowEnd, individualEnd);
+  if (now > effectiveEnd + FINAL_SUBMISSION_GRACE_MS) {
+    throw new HttpsError('failed-precondition', 'The draft save window has closed.');
+  }
+
+  const incomingRevision = Number(request.data?.revision || 0);
+  const currentRevision = Number(session.draftRevision || 0);
+  if (incomingRevision < currentRevision) {
+    return { session, serverNowMs: now };
+  }
+
   const uploadedFiles = await validateUploadedFiles(request.data?.uploadedFiles, exam, session, uid);
 
   const updates: Partial<StudentSession> = {
     draftAnswers: request.data?.answers || {},
     draftUploadedFiles: uploadedFiles,
     draftSavedAt: now,
-    draftRevision: Number(request.data?.revision || 0),
+    draftRevision: incomingRevision,
   };
 
   await ref.set(updates, { merge: true });

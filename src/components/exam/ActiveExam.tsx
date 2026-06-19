@@ -68,6 +68,7 @@ export const ActiveExam = () => {
   const answersRef = useRef<Record<string, any>>({}); // Ref to track latest answers for async access
   const activeExamDataRef = useRef<{ exam: Exam, session: StudentSession } | null>(null);
   const uploadedFilesRef = useRef<UploadedExamFile[]>([]);
+  const uploadInFlightRef = useRef<Promise<void> | null>(null);
   const frameUploadInFlightRef = useRef(false);
   const autosaveTimerRef = useRef<number | null>(null);
   const autosaveTimerModeRef = useRef<'threshold' | 'backstop' | null>(null);
@@ -1090,9 +1091,20 @@ export const ActiveExam = () => {
             // Exam window has closed - auto-submit
             console.log("⏰ Exam window has closed (server time). Auto-submitting...");
             try {
+              await waitForActiveUpload();
+              persistLocalDraft(examData.session.studentId, examData.exam.id, answersRef.current, uploadedFilesRef.current);
+              await saveDraftToCloud('scheduled-window-close');
               await api.sessions.submit(examData.session.studentId, examData.exam.id, answersRef.current, uploadedFilesRef.current);
             } catch (err) {
               console.error("Failed to auto-submit:", err);
+              showModal({
+                title: 'Auto-submit Failed',
+                message: 'The portal could not complete automatic submission. Your latest answers remain saved locally. Please reconnect and try submitting again immediately.',
+                type: 'error',
+                showCancel: false,
+                confirmText: 'OK',
+              });
+              return;
             }
             showModal({
               title: '⏰ Time\'s Up!',
@@ -1257,6 +1269,13 @@ export const ActiveExam = () => {
     await saveDraftToCloud('manual');
   };
 
+  const waitForActiveUpload = async () => {
+    const activeUpload = uploadInFlightRef.current;
+    if (activeUpload) {
+      await activeUpload;
+    }
+  };
+
   const handleCameraRetry = async () => {
     const permissionState = await readCameraPermissionState();
 
@@ -1359,9 +1378,12 @@ export const ActiveExam = () => {
   const doSubmit = async (stuId: string, exId: string, finalAnswers: Record<string, any>, finalFiles: any[]) => {
     setInitStatus('SUBMITTING');
     try {
-      persistLocalDraft(stuId, exId, finalAnswers, finalFiles);
+      await waitForActiveUpload();
+      const latestAnswers = answersRef.current;
+      const latestFiles = uploadedFilesRef.current;
+      persistLocalDraft(stuId, exId, latestAnswers, latestFiles);
       await saveDraftToCloud('pre-submit');
-      await submitExamSession(stuId, exId, finalAnswers, finalFiles);
+      await submitExamSession(stuId, exId, latestAnswers, latestFiles);
       clearLocalDraft(stuId, exId);
       clearQuestionFlags(stuId, exId);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -1378,7 +1400,7 @@ export const ActiveExam = () => {
     }
   };
 
-  const handleSubmit = async (stuId = activeExamData?.session.studentId, exId = activeExamData?.exam.id, finalAnswers = answers, finalFiles = uploadedFiles, skipState = false) => {
+  const handleSubmit = async (stuId = activeExamData?.session.studentId, exId = activeExamData?.exam.id, finalAnswers = answersRef.current, finalFiles = uploadedFilesRef.current, skipState = false) => {
      if (!stuId || !exId) return;
      if (!skipState && !canUseExamControls()) {
        showModal({
@@ -1390,12 +1412,25 @@ export const ActiveExam = () => {
        });
        return;
      }
-     
+     if (!skipState && uploadInFlightRef.current) {
+       showModal({
+         title: 'File Upload in Progress',
+         message: 'Please wait until the current file upload finishes before submitting. Your answers are still being saved.',
+         type: 'warning',
+         showCancel: false,
+         confirmText: 'OK',
+       });
+       return;
+     }
+
+     const submissionAnswers = finalAnswers || answersRef.current;
+     const submissionFiles = finalFiles || uploadedFilesRef.current;
+      
      // Only show confirmation for manual submissions (not auto-submit)
      if (!skipState && activeExamData) {
        const totalQuestions = activeExamData.exam.questions.length;
        const answeredQuestions = activeExamData.exam.questions.filter(q => {
-         const ans = finalAnswers[q.id];
+         const ans = submissionAnswers[q.id];
          return ans !== undefined && ans !== '' && (Array.isArray(ans) ? ans.length > 0 : true);
         }).length;
         const unansweredQuestions = totalQuestions - answeredQuestions;
@@ -1421,36 +1456,39 @@ export const ActiveExam = () => {
             </div>
           ),
           type: unansweredQuestions > 0 || flaggedCount > 0 ? 'warning' : 'confirm',
-         confirmText: 'Submit Exam',
-         cancelText: 'Continue Editing',
-         showCancel: true,
-         onConfirm: () => doSubmit(stuId, exId, finalAnswers, finalFiles),
-       });
-       return;
-     }
+          confirmText: 'Submit Exam',
+          cancelText: 'Continue Editing',
+          showCancel: true,
+          onConfirm: () => doSubmit(stuId, exId, answersRef.current, uploadedFilesRef.current),
+        });
+        return;
+      }
      
      // Auto-submit (skipState = true) - no confirmation needed
      if (!skipState) setInitStatus('SUBMITTING'); 
-     
+      
      try {
-       persistLocalDraft(stuId, exId, finalAnswers, finalFiles);
+       await waitForActiveUpload();
+       const latestAnswers = finalAnswers || answersRef.current;
+       const latestFiles = finalFiles || uploadedFilesRef.current;
+       persistLocalDraft(stuId, exId, latestAnswers, latestFiles);
        await saveDraftToCloud('pre-submit');
-       await submitExamSession(stuId, exId, finalAnswers, finalFiles);
+       await submitExamSession(stuId, exId, latestAnswers, latestFiles);
        clearLocalDraft(stuId, exId);
        clearQuestionFlags(stuId, exId);
        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
        navigate('/student/completed');
      } catch(e) {
-       if (!skipState) {
-        showModal({
-          title: 'Submission Failed',
-          message: 'Failed to submit your exam. Please try again.',
-          type: 'error',
-          showCancel: false,
-          confirmText: 'OK',
-        });
-        setInitStatus('READY');
-       }
+       showModal({
+         title: skipState ? 'Auto-submit Failed' : 'Submission Failed',
+         message: skipState
+           ? 'The portal could not complete automatic submission. Your latest answers remain saved locally. Please reconnect and try submitting again immediately.'
+           : 'Failed to submit your exam. Please try again.',
+         type: 'error',
+         showCancel: false,
+         confirmText: 'OK',
+       });
+       setInitStatus('READY');
      }
   };
 
@@ -1489,7 +1527,8 @@ export const ActiveExam = () => {
     }
 
     setIsUploading(true);
-    try {
+    const uploadTask = (async () => {
+      try {
       const ownerUid = firebaseAuth.currentUser?.uid;
       if (!ownerUid) {
         throw new Error('You must be signed in before uploading files.');
@@ -1521,9 +1560,9 @@ export const ActiveExam = () => {
         const nextFiles = [...prev, newFile];
         uploadedFilesRef.current = nextFiles;
         persistDraft(answersRef.current, nextFiles, true);
-        return nextFiles;
-      });
-    } catch (error: any) {
+          return nextFiles;
+        });
+      } catch (error: any) {
       console.error("Upload failed:", error);
       const isPermissionError = error?.code === 'storage/unauthorized';
       showModal({
@@ -1535,7 +1574,16 @@ export const ActiveExam = () => {
         showCancel: false,
         confirmText: 'OK',
       });
+      }
+    })();
+
+    uploadInFlightRef.current = uploadTask;
+    try {
+      await uploadTask;
     } finally {
+      if (uploadInFlightRef.current === uploadTask) {
+        uploadInFlightRef.current = null;
+      }
       setIsUploading(false);
       e.target.value = '';
     }
