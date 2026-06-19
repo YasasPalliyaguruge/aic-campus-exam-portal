@@ -26,6 +26,7 @@ type LocalExamDraft = {
 
 type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offline' | 'error';
 type WebcamProctorStatus = 'idle' | 'starting' | 'uploading' | 'live' | 'stale' | 'denied' | 'error';
+type CameraPermissionState = PermissionState | 'unsupported' | 'unknown';
 
 const CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS = 3000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 10 * 60 * 1000;
@@ -101,6 +102,7 @@ export const ActiveExam = () => {
   const [webcamMessage, setWebcamMessage] = useState('Camera feed is starting...');
   const [webcamRetryNonce, setWebcamRetryNonce] = useState(0);
   const [lastWebcamFrameAt, setLastWebcamFrameAt] = useState<number | null>(null);
+  const [cameraPermissionState, setCameraPermissionState] = useState<CameraPermissionState>('unknown');
   const webcamStatusRef = useRef<WebcamProctorStatus>('idle');
   const lastWebcamFrameAtRef = useRef<number | null>(null);
   
@@ -799,6 +801,22 @@ export const ActiveExam = () => {
     };
   }, [initStatus, activeExamData?.exam.id, activeExamData?.session.studentId]);
 
+  const readCameraPermissionState = async (): Promise<CameraPermissionState> => {
+    if (!navigator.permissions?.query) {
+      setCameraPermissionState('unsupported');
+      return 'unsupported';
+    }
+
+    try {
+      const status = await (navigator.permissions.query as (descriptor: { name: string }) => Promise<PermissionStatus>)({ name: 'camera' });
+      setCameraPermissionState(status.state);
+      return status.state;
+    } catch (error) {
+      setCameraPermissionState('unsupported');
+      return 'unsupported';
+    }
+  };
+
   const logCameraFeedLost = () => {
     const examData = activeExamDataRef.current;
     if (!examData || webcamOutageLoggedRef.current) return;
@@ -810,6 +828,56 @@ export const ActiveExam = () => {
       console.warn('Failed to log camera feed outage:', error);
     });
   };
+
+  useEffect(() => {
+    if (initStatus !== 'READY' || !navigator.permissions?.query) return;
+
+    let permissionStatus: PermissionStatus | null = null;
+    let isDisposed = false;
+
+    const bindCameraPermission = async () => {
+      try {
+        permissionStatus = await (navigator.permissions.query as (descriptor: { name: string }) => Promise<PermissionStatus>)({ name: 'camera' });
+        if (isDisposed) return;
+
+        const syncPermissionState = () => {
+          const nextState = permissionStatus?.state || 'unknown';
+          setCameraPermissionState(nextState);
+
+          if (nextState === 'denied') {
+            setWebcamStatus('denied');
+            setWebcamMessage('Camera access is blocked in browser site settings. Change Camera to Allow for this site, then check again.');
+            logCameraFeedLost();
+            return;
+          }
+
+          if (
+            nextState === 'granted' &&
+            webcamStatusRef.current !== 'live' &&
+            webcamStatusRef.current !== 'starting' &&
+            webcamStatusRef.current !== 'uploading'
+          ) {
+            setWebcamMessage('Camera permission is allowed again. Reconnecting camera feed...');
+            setWebcamRetryNonce(value => value + 1);
+          }
+        };
+
+        syncPermissionState();
+        permissionStatus.onchange = syncPermissionState;
+      } catch (error) {
+        setCameraPermissionState('unsupported');
+      }
+    };
+
+    bindCameraPermission();
+
+    return () => {
+      isDisposed = true;
+      if (permissionStatus) {
+        permissionStatus.onchange = null;
+      }
+    };
+  }, [initStatus]);
 
   // --- 4. Required Webcam Feed Gate ---
   useEffect(() => {
@@ -913,6 +981,7 @@ export const ActiveExam = () => {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480 },
         });
+        setCameraPermissionState('granted');
         stream.getVideoTracks().forEach(track => {
           track.onended = () => {
             setWebcamStatus('error');
@@ -947,8 +1016,14 @@ export const ActiveExam = () => {
         }, WEBCAM_FRAME_INTERVAL_MS);
       } catch (error: any) {
         console.error('Camera access or upload failed:', error);
-        setWebcamStatus(error?.name === 'NotAllowedError' ? 'denied' : 'error');
-        setWebcamMessage(error?.message || 'Camera access or upload failed. Allow camera access and retry before continuing.');
+        const permissionState = await readCameraPermissionState();
+        const isPermissionDenied = error?.name === 'NotAllowedError' || permissionState === 'denied';
+        setWebcamStatus(isPermissionDenied ? 'denied' : 'error');
+        setWebcamMessage(
+          isPermissionDenied
+            ? 'Camera access is blocked in browser site settings. Change Camera to Allow for this site, then check again.'
+            : (error?.message || 'Camera access or upload failed. Please retry camera feed so the proctor can see you.')
+        );
         logCameraFeedLost();
       }
     };
@@ -1179,6 +1254,39 @@ export const ActiveExam = () => {
       uploadedFilesRef.current,
     );
     await saveDraftToCloud('manual');
+  };
+
+  const handleCameraRetry = async () => {
+    const permissionState = await readCameraPermissionState();
+
+    if (permissionState === 'denied') {
+      setWebcamStatus('denied');
+      setWebcamMessage('Camera is still blocked by the browser. Set Camera to Allow for this site, then click Check Camera Again.');
+      logCameraFeedLost();
+      return;
+    }
+
+    setWebcamStatus('starting');
+    setWebcamMessage('Requesting camera access again...');
+    setWebcamRetryNonce(value => value + 1);
+  };
+
+  const handleCameraSaveAndReload = async () => {
+    const current = activeExamDataRef.current;
+    if (current) {
+      persistLocalDraft(
+        current.session.studentId,
+        current.exam.id,
+        answersRef.current,
+        uploadedFilesRef.current,
+      );
+      try {
+        await saveDraftToCloud('camera-permission-reload');
+      } catch (error) {
+        console.warn('Cloud save before camera-permission reload failed; local draft was preserved.', error);
+      }
+    }
+    window.location.reload();
   };
 
   const toggleFlagCurrentQuestion = () => {
@@ -1623,7 +1731,7 @@ export const ActiveExam = () => {
     if (isCameraFeedLive) return null;
 
     const isRetrying = webcamStatus === 'starting' || webcamStatus === 'uploading';
-    const isPermissionDenied = webcamStatus === 'denied';
+    const isBrowserBlocked = webcamStatus === 'denied' || cameraPermissionState === 'denied';
 
     return (
       <div className="fixed inset-x-0 top-24 z-[65] flex justify-center px-4 pointer-events-none">
@@ -1637,21 +1745,33 @@ export const ActiveExam = () => {
               <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
                 You can continue writing, but this warning will stay here until your camera is on and proctors receive a fresh feed.
               </p>
-              {isPermissionDenied && (
+              {isBrowserBlocked && (
                 <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-300">
-                  If your browser blocked camera access, allow camera permission for this site, then try again.
+                  Camera is blocked in the browser. Open the site controls next to the address bar, set Camera to Allow, then check again. If the browser asks to refresh, use Save & Reload.
                 </p>
               )}
               <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{webcamMessage}</p>
             </div>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => setWebcamRetryNonce(value => value + 1)}
-              disabled={isRetrying}
-            >
-              {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
-              {isPermissionDenied ? 'Allow Camera Again' : 'Retry Camera'}
-            </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto">
+              <Button
+                className="w-full sm:w-auto"
+                onClick={handleCameraRetry}
+                disabled={isRetrying}
+              >
+                {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
+                {isBrowserBlocked ? 'Check Camera Again' : 'Retry Camera'}
+              </Button>
+              {isBrowserBlocked && (
+                <Button
+                  className="w-full sm:w-auto"
+                  variant="secondary"
+                  onClick={handleCameraSaveAndReload}
+                  disabled={draftSaveState.phase === 'saving'}
+                >
+                  <Save size={16} /> Save & Reload
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
