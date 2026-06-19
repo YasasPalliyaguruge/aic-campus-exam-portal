@@ -1620,9 +1620,10 @@ export const ActiveExam = () => {
   };
 
   const CameraFeedBlocker = () => {
-    if (screenShareStatus !== 'active' || isCameraFeedLive) return null;
+    if (isCameraFeedLive) return null;
 
     const isRetrying = webcamStatus === 'starting' || webcamStatus === 'uploading';
+    const isPermissionDenied = webcamStatus === 'denied';
 
     return (
       <div className="fixed inset-x-0 top-24 z-[65] flex justify-center px-4 pointer-events-none">
@@ -1634,8 +1635,13 @@ export const ActiveExam = () => {
             <div className="min-w-0 flex-1 text-left">
               <h2 className="text-base font-bold text-gray-900 dark:text-white">Camera Feed Needs Attention</h2>
               <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
-                You can continue writing, but proctors cannot see a fresh camera feed. Please retry now and keep your face visible.
+                You can continue writing, but this warning will stay here until your camera is on and proctors receive a fresh feed.
               </p>
+              {isPermissionDenied && (
+                <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-300">
+                  If your browser blocked camera access, allow camera permission for this site, then try again.
+                </p>
+              )}
               <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{webcamMessage}</p>
             </div>
             <Button
@@ -1644,7 +1650,7 @@ export const ActiveExam = () => {
               disabled={isRetrying}
             >
               {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
-              Retry Camera
+              {isPermissionDenied ? 'Allow Camera Again' : 'Retry Camera'}
             </Button>
           </div>
         </div>
