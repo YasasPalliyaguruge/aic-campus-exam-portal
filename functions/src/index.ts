@@ -250,16 +250,17 @@ const getEndMs = (exam: Exam) => {
   return exam.scheduledEnd ? new Date(exam.scheduledEnd).getTime() : Number.MAX_SAFE_INTEGER;
 };
 
-const formatExamScheduleTime = (exam: Exam, timestampMs: number) => {
-  const timeZone = exam.scheduleTimeZone || 'Asia/Colombo';
+const SRI_LANKA_TIME_ZONE = 'Asia/Colombo';
+
+const formatExamScheduleTime = (_exam: Exam, timestampMs: number) => {
   try {
     const formatted = new Intl.DateTimeFormat('en-US', {
       dateStyle: 'medium',
       timeStyle: 'short',
-      timeZone,
-      timeZoneName: 'short',
+      timeZone: SRI_LANKA_TIME_ZONE,
+      hour12: true,
     }).format(new Date(timestampMs));
-    return `${formatted} (${timeZone})`;
+    return `${formatted} Sri Lankan time`;
   } catch {
     return new Date(timestampMs).toISOString();
   }
