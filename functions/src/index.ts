@@ -240,6 +240,30 @@ const validateUploadedFiles = async (
   return validatedFiles;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+const mergeSubmittedAnswers = (incomingAnswers: unknown, session: StudentSession) => {
+  const savedAnswers = isRecord(session.answers) ? session.answers : {};
+  const savedDraftAnswers = isRecord(session.draftAnswers) ? session.draftAnswers : {};
+  const submittedAnswers = isRecord(incomingAnswers) ? incomingAnswers : {};
+  return {
+    ...savedAnswers,
+    ...savedDraftAnswers,
+    ...submittedAnswers,
+  };
+};
+
+const getSubmittedFileInput = (incomingFiles: unknown, session: StudentSession) => {
+  const files = Array.isArray(incomingFiles) ? incomingFiles : [];
+  if (files.length > 0) return files;
+  if (Array.isArray(session.draftUploadedFiles) && session.draftUploadedFiles.length > 0) {
+    return session.draftUploadedFiles;
+  }
+  if (Array.isArray(session.uploadedFiles)) return session.uploadedFiles;
+  return [];
+};
+
 const getStartMs = (exam: Exam) => {
   if (typeof exam.scheduledStartMs === 'number') return exam.scheduledStartMs;
   return exam.scheduledStart ? new Date(exam.scheduledStart).getTime() : 0;
@@ -533,12 +557,18 @@ export const submitStudentSession = onCall(async (request) => {
     throw new HttpsError('failed-precondition', 'The submission window has closed.');
   }
   const wasReceivedAfterDeadline = now > effectiveEnd;
-  const uploadedFiles = await validateUploadedFiles(request.data?.uploadedFiles, exam, session, uid);
+  const submittedAnswers = mergeSubmittedAnswers(request.data?.answers, session);
+  const uploadedFiles = await validateUploadedFiles(
+    getSubmittedFileInput(request.data?.uploadedFiles, session),
+    exam,
+    session,
+    uid,
+  );
 
   const updates: Partial<StudentSession> = {
     status: 'SUBMITTED',
     submitTime: wasReceivedAfterDeadline ? effectiveEnd : now,
-    answers: request.data?.answers || {},
+    answers: submittedAnswers,
     uploadedFiles,
   };
   const persistedUpdates = {

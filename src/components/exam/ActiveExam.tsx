@@ -647,12 +647,6 @@ export const ActiveExam = () => {
           - Until scheduled end: ${scheduledRemaining === Infinity ? 'N/A' : Math.floor(scheduledRemaining / 60) + ' min'}
           - Final timer: ${Math.floor(remaining / 60)} min`);
 
-        if (remaining <= 0) {
-           // Expired on load
-           handleSubmit(freshSession.studentId, exam.id, freshSession.answers || {}, freshSession.uploadedFiles || [], true);
-           return;
-        }
-
         const localDraft = readLocalDraft(freshSession.studentId, exam.id);
         const serverDraftSavedAt = freshSession.draftSavedAt || 0;
         const useLocalDraft = Boolean(localDraft && localDraft.savedAt > serverDraftSavedAt);
@@ -662,6 +656,13 @@ export const ActiveExam = () => {
         const restoredFiles = useLocalDraft
           ? localDraft!.uploadedFiles
           : (freshSession.draftUploadedFiles || freshSession.uploadedFiles || []);
+
+        if (remaining <= 0) {
+           // Expired on load/reload: submit the newest recoverable draft, not the
+           // finalized answers field, which is often still empty during an exam.
+           handleSubmit(freshSession.studentId, exam.id, restoredAnswers, restoredFiles, true);
+           return;
+        }
 
         draftRevisionRef.current = Math.max(localDraft?.revision || 0, freshSession.draftRevision || 0);
         lastCloudSaveAtRef.current = serverDraftSavedAt;
