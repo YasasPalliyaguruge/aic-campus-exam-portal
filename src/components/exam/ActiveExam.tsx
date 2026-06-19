@@ -1261,7 +1261,7 @@ export const ActiveExam = () => {
 
     if (permissionState === 'denied') {
       setWebcamStatus('denied');
-      setWebcamMessage('Camera is still blocked by the browser. Set Camera to Allow for this site, then click Check Camera Again.');
+      setWebcamMessage('Camera is still blocked by the browser. The exam portal cannot change this setting. Set Camera to Allow in the address bar site controls first.');
       logCameraFeedLost();
       return;
     }
@@ -1272,6 +1272,14 @@ export const ActiveExam = () => {
   };
 
   const handleCameraSaveAndReload = async () => {
+    const permissionState = await readCameraPermissionState();
+    if (permissionState === 'denied') {
+      setWebcamStatus('denied');
+      setWebcamMessage('Save & Reload will preserve answers, but it cannot switch on a browser-blocked camera. First set Camera to Allow, then use this if the browser asks to refresh.');
+    } else {
+      setWebcamMessage('Saving answers before reloading camera permission...');
+    }
+
     const current = activeExamDataRef.current;
     if (current) {
       persistLocalDraft(
@@ -1732,6 +1740,7 @@ export const ActiveExam = () => {
 
     const isRetrying = webcamStatus === 'starting' || webcamStatus === 'uploading';
     const isBrowserBlocked = webcamStatus === 'denied' || cameraPermissionState === 'denied';
+    const cameraActionLabel = isBrowserBlocked ? 'I Set Camera to Allow' : 'Retry Camera';
 
     return (
       <div className="fixed inset-x-0 top-24 z-[65] flex justify-center px-4 pointer-events-none">
@@ -1746,9 +1755,16 @@ export const ActiveExam = () => {
                 You can continue writing, but this warning will stay here until your camera is on and proctors receive a fresh feed.
               </p>
               {isBrowserBlocked && (
-                <p className="mt-2 text-xs font-semibold text-red-600 dark:text-red-300">
-                  Camera is blocked in the browser. Open the site controls next to the address bar, set Camera to Allow, then check again. If the browser asks to refresh, use Save & Reload.
-                </p>
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+                  <p className="text-red-600 dark:text-red-300">
+                    Camera is blocked by your browser. The exam portal cannot switch this setting on for you.
+                  </p>
+                  <ol className="mt-2 list-decimal space-y-1 pl-4">
+                    <li>Open the site controls next to the address bar.</li>
+                    <li>Change Camera from Block to Allow for this site.</li>
+                    <li>Then click I Set Camera to Allow. If the browser asks for refresh, click Save & Reload.</li>
+                  </ol>
+                </div>
               )}
               <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{webcamMessage}</p>
             </div>
@@ -1759,7 +1775,7 @@ export const ActiveExam = () => {
                 disabled={isRetrying}
               >
                 {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
-                {isBrowserBlocked ? 'Check Camera Again' : 'Retry Camera'}
+                {cameraActionLabel}
               </Button>
               {isBrowserBlocked && (
                 <Button
@@ -1768,7 +1784,7 @@ export const ActiveExam = () => {
                   onClick={handleCameraSaveAndReload}
                   disabled={draftSaveState.phase === 'saving'}
                 >
-                  <Save size={16} /> Save & Reload
+                  <Save size={16} /> Save & Reload After Allow
                 </Button>
               )}
             </div>
