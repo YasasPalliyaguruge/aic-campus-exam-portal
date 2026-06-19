@@ -18,6 +18,7 @@ export const ProctorView = () => {
   const [freshnessNow, setFreshnessNow] = useState(() => getServerTime());
 
   const activeSessions = sessions.filter(s => s.status === 'IN_PROGRESS');
+  type FrameStatus = 'live' | 'stale' | 'none';
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -56,8 +57,39 @@ export const ProctorView = () => {
     return `${url}${url.includes('?') ? '&' : '?'}t=${timestamp}`;
   };
 
-  const isFrameFresh = (session: StudentSession) =>
-    Boolean(session.currentFrame && session.currentFrameUpdatedAt && freshnessNow - session.currentFrameUpdatedAt < 45000);
+  const getFrameAgeMs = (session: StudentSession) =>
+    session.currentFrameUpdatedAt ? Math.max(0, freshnessNow - session.currentFrameUpdatedAt) : null;
+
+  const getFrameStatus = (session: StudentSession): FrameStatus => {
+    if (!session.currentFrame || !session.currentFrameUpdatedAt) return 'none';
+    return getFrameAgeMs(session)! < 45000 ? 'live' : 'stale';
+  };
+
+  const isFrameFresh = (session: StudentSession) => getFrameStatus(session) === 'live';
+
+  const formatFrameAge = (session: StudentSession) => {
+    const ageMs = getFrameAgeMs(session);
+    if (ageMs === null) return 'No camera frame received';
+    const seconds = Math.max(1, Math.floor(ageMs / 1000));
+    if (seconds < 60) return `Updated ${seconds}s ago`;
+    return `Updated ${Math.floor(seconds / 60)}m ${seconds % 60}s ago`;
+  };
+
+  const getFrameStatusLabel = (status: FrameStatus) => {
+    if (status === 'live') return 'Live';
+    if (status === 'stale') return 'Stale';
+    return 'No Feed';
+  };
+
+  const getFrameDotClass = (status: FrameStatus) => {
+    if (status === 'live') return 'bg-red-500 animate-pulse';
+    if (status === 'stale') return 'bg-amber-400';
+    return 'bg-gray-400';
+  };
+
+  const liveFrameCount = activeSessions.filter(session => getFrameStatus(session) === 'live').length;
+  const staleFrameCount = activeSessions.filter(session => getFrameStatus(session) === 'stale').length;
+  const missingFrameCount = activeSessions.filter(session => getFrameStatus(session) === 'none').length;
 
   const sanitizeFileName = (value: string) =>
     value.replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 90) || 'screen-capture-proof';
@@ -292,14 +324,25 @@ export const ProctorView = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Live Proctoring</h2>
-        <div className="flex items-center gap-3 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-full text-sm font-bold border border-emerald-100 dark:border-emerald-800">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          {activeSessions.length} Active Candidates
+        <div className="flex flex-wrap gap-2">
+          <div className="flex items-center gap-3 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-full text-sm font-bold border border-emerald-100 dark:border-emerald-800">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            {activeSessions.length} Active Candidates
+          </div>
+          <div className="rounded-full border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
+            {liveFrameCount} Live
+          </div>
+          <div className="rounded-full border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+            {staleFrameCount} Stale
+          </div>
+          <div className="rounded-full border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+            {missingFrameCount} No Feed
+          </div>
         </div>
       </div>
 
@@ -309,6 +352,7 @@ export const ProctorView = () => {
           // Safe check for violations array
           const violations = session.violations || [];
           const hasViolation = violations.length > 0;
+          const frameStatus = getFrameStatus(session);
           
           return (
             <Card 
@@ -322,12 +366,12 @@ export const ProctorView = () => {
             >
               <div className="aspect-video bg-gray-900 relative">
                 {/* Live Stream Frame */}
-                {isFrameFresh(session) ? (
+                {frameStatus !== 'none' ? (
                   <img src={withCacheBust(session.currentFrame, session.currentFrameUpdatedAt)} alt="Live Stream" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
                     <Video size={32} className="animate-pulse" />
-                    <span className="mt-2 text-xs font-bold">Waiting for camera feed</span>
+                    <span className="mt-2 text-xs font-bold">No camera feed yet</span>
                   </div>
                 )}
                 
@@ -340,10 +384,16 @@ export const ProctorView = () => {
                      </div>
                    )}
                    <div className="bg-black/60 backdrop-blur text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                      <div className={`w-1.5 h-1.5 rounded-full ${isFrameFresh(session) ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}`}/>
-                      {isFrameFresh(session) ? 'Live' : 'Pending'}
+                      <div className={`w-1.5 h-1.5 rounded-full ${getFrameDotClass(frameStatus)}`}/>
+                      {getFrameStatusLabel(frameStatus)}
                    </div>
                 </div>
+
+                {frameStatus === 'stale' && (
+                  <div className="absolute left-3 top-3 rounded-full bg-amber-500/90 px-2 py-1 text-[11px] font-bold text-white shadow">
+                    {formatFrameAge(session)}
+                  </div>
+                )}
 
                 <div className="absolute bottom-4 left-4 right-4">
                   <p className="text-white font-bold truncate text-lg shadow-sm">{student?.name || session.studentId}</p>
@@ -423,6 +473,7 @@ export const ProctorView = () => {
         const selectedSession = sessions.find(s => `${s.studentId}_${s.examId}` === selectedSessionId);
         const selectedStudent = selectedSession ? users.find(u => u.id === selectedSession.studentId) : undefined;
         const selectedExam = selectedSession ? exams.find(e => e.id === selectedSession.examId) : undefined;
+        const selectedFrameStatus = selectedSession ? getFrameStatus(selectedSession) : 'none';
         return selectedSession && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div className="bg-white/95 dark:bg-gray-900/95 rounded-3xl shadow-2xl shadow-black/20 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-white/80 dark:border-gray-800/80 backdrop-blur-xl animate-in zoom-in-95 fade-in duration-200">
@@ -451,20 +502,25 @@ export const ProctorView = () => {
                {/* Left Col: Live Feed & Stats */}
                <div className="space-y-6">
                   <div className="aspect-video bg-black rounded-xl overflow-hidden border-2 border-gray-800 relative shadow-lg">
-                    {isFrameFresh(selectedSession) ? (
+                    {selectedFrameStatus !== 'none' ? (
                       <img src={withCacheBust(selectedSession.currentFrame, selectedSession.currentFrameUpdatedAt)} alt="Live Stream" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
                         <Video size={48} className="animate-pulse" />
-                        <span className="mt-3 text-sm font-bold">Waiting for camera feed</span>
-                        <span className="mt-1 text-xs text-gray-400">The student is blocked until a fresh frame arrives.</span>
+                        <span className="mt-3 text-sm font-bold">No camera feed yet</span>
+                        <span className="mt-1 text-xs text-gray-400">Ask the student to retry camera access.</span>
                       </div>
                     )}
                     <div className={`absolute top-4 left-4 text-white text-xs px-2 py-1 rounded font-bold ${
-                      isFrameFresh(selectedSession) ? 'bg-red-600 animate-pulse' : 'bg-amber-600'
+                      selectedFrameStatus === 'live' ? 'bg-red-600 animate-pulse' : selectedFrameStatus === 'stale' ? 'bg-amber-600' : 'bg-gray-700'
                     }`}>
-                      {isFrameFresh(selectedSession) ? 'LIVE' : 'PENDING'}
+                      {getFrameStatusLabel(selectedFrameStatus).toUpperCase()}
                     </div>
+                    {selectedFrameStatus === 'stale' && (
+                      <div className="absolute bottom-4 left-4 rounded-full bg-black/70 px-3 py-1 text-xs font-bold text-amber-200">
+                        {formatFrameAge(selectedSession)}
+                      </div>
+                    )}
                   </div>
 
                   <Card noPadding className="overflow-hidden border-gray-200 dark:border-gray-800">

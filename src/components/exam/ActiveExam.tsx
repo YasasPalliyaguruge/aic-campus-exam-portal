@@ -25,7 +25,7 @@ type LocalExamDraft = {
 };
 
 type DraftSavePhase = 'idle' | 'local' | 'queued' | 'saving' | 'cloud' | 'offline' | 'error';
-type WebcamProctorStatus = 'idle' | 'starting' | 'uploading' | 'live' | 'denied' | 'error';
+type WebcamProctorStatus = 'idle' | 'starting' | 'uploading' | 'live' | 'stale' | 'denied' | 'error';
 
 const CLOUD_AUTOSAVE_THRESHOLD_DELAY_MS = 3000;
 const CLOUD_AUTOSAVE_MAX_WAIT_MS = 10 * 60 * 1000;
@@ -34,6 +34,8 @@ const CLOUD_AUTOSAVE_ANSWER_CHANGE_THRESHOLD = 20;
 const TRUSTED_TIME_RESYNC_MS = 5 * 60 * 1000;
 const WEBCAM_FRAME_INTERVAL_MS = 15 * 1000;
 const WEBCAM_READY_TIMEOUT_MS = 5 * 1000;
+const WEBCAM_HEALTH_CHECK_MS = 5 * 1000;
+const WEBCAM_STALE_AFTER_MS = 45 * 1000;
 
 const sanitizeStorageFileName = (fileName: string) =>
   fileName
@@ -79,6 +81,7 @@ export const ActiveExam = () => {
   const screenCaptureInFlightRef = useRef(false);
   const screenSharePromptedRef = useRef(false);
   const screenShareStopLoggedRef = useRef(false);
+  const webcamOutageLoggedRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null); // Remaining seconds
   const [activeExamData, setActiveExamData] = useState<{ exam: Exam, session: StudentSession } | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -98,6 +101,8 @@ export const ActiveExam = () => {
   const [webcamMessage, setWebcamMessage] = useState('Camera feed is starting...');
   const [webcamRetryNonce, setWebcamRetryNonce] = useState(0);
   const [lastWebcamFrameAt, setLastWebcamFrameAt] = useState<number | null>(null);
+  const webcamStatusRef = useRef<WebcamProctorStatus>('idle');
+  const lastWebcamFrameAtRef = useRef<number | null>(null);
   
   // Modal state for beautiful dialogs
   const { modalState, showModal, hideModal } = useModal();
@@ -109,6 +114,14 @@ export const ActiveExam = () => {
   useEffect(() => {
     uploadedFilesRef.current = uploadedFiles;
   }, [uploadedFiles]);
+
+  useEffect(() => {
+    webcamStatusRef.current = webcamStatus;
+  }, [webcamStatus]);
+
+  useEffect(() => {
+    lastWebcamFrameAtRef.current = lastWebcamFrameAt;
+  }, [lastWebcamFrameAt]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -786,6 +799,18 @@ export const ActiveExam = () => {
     };
   }, [initStatus, activeExamData?.exam.id, activeExamData?.session.studentId]);
 
+  const logCameraFeedLost = () => {
+    const examData = activeExamDataRef.current;
+    if (!examData || webcamOutageLoggedRef.current) return;
+    webcamOutageLoggedRef.current = true;
+    api.sessions.logViolation(examData.session.studentId, examData.exam.id, {
+      timestamp: getServerTime(),
+      type: 'CAMERA_FEED_LOST',
+    }).catch(error => {
+      console.warn('Failed to log camera feed outage:', error);
+    });
+  };
+
   // --- 4. Required Webcam Feed Gate ---
   useEffect(() => {
     if (initStatus !== 'READY') return;
@@ -872,6 +897,7 @@ export const ActiveExam = () => {
 
         const now = getServerTime();
         setLastWebcamFrameAt(now);
+        webcamOutageLoggedRef.current = false;
         setWebcamStatus('live');
         setWebcamMessage('Camera feed is live for the proctor.');
         return true;
@@ -886,6 +912,18 @@ export const ActiveExam = () => {
         setWebcamMessage('Requesting camera permission...');
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480 },
+        });
+        stream.getVideoTracks().forEach(track => {
+          track.onended = () => {
+            setWebcamStatus('error');
+            setWebcamMessage('Camera sharing stopped. Please retry camera feed so the proctor can see you.');
+            logCameraFeedLost();
+          };
+          track.onmute = () => {
+            setWebcamStatus('error');
+            setWebcamMessage('Camera feed was interrupted. Please retry camera feed so the proctor can see you.');
+            logCameraFeedLost();
+          };
         });
 
         if (!videoRef.current) {
@@ -904,19 +942,14 @@ export const ActiveExam = () => {
             console.error('Frame capture/upload failed:', error);
             setWebcamStatus('error');
             setWebcamMessage(error?.message || 'Camera feed upload failed. Retry before continuing.');
+            logCameraFeedLost();
           }
         }, WEBCAM_FRAME_INTERVAL_MS);
       } catch (error: any) {
         console.error('Camera access or upload failed:', error);
         setWebcamStatus(error?.name === 'NotAllowedError' ? 'denied' : 'error');
         setWebcamMessage(error?.message || 'Camera access or upload failed. Allow camera access and retry before continuing.');
-        showModal({
-          title: 'Camera Feed Required',
-          message: 'The exam is paused until your webcam feed is visible to the proctor. Please allow camera access and retry.',
-          type: 'error',
-          showCancel: false,
-          confirmText: 'I Understand',
-        });
+        logCameraFeedLost();
       }
     };
 
@@ -932,6 +965,23 @@ export const ActiveExam = () => {
       }
     };
   }, [initStatus, activeExamData?.exam.id, activeExamData?.session.studentId, webcamRetryNonce]);
+
+  useEffect(() => {
+    if (initStatus !== 'READY') return;
+
+    const healthInterval = window.setInterval(() => {
+      const lastFrameAt = lastWebcamFrameAtRef.current;
+      if (!lastFrameAt || webcamStatusRef.current !== 'live') return;
+
+      if (getServerTime() - lastFrameAt > WEBCAM_STALE_AFTER_MS) {
+        setWebcamStatus('stale');
+        setWebcamMessage('Camera feed has not updated recently. Please retry camera feed so the proctor can see you.');
+        logCameraFeedLost();
+      }
+    }, WEBCAM_HEALTH_CHECK_MS);
+
+    return () => window.clearInterval(healthInterval);
+  }, [initStatus]);
 
   // --- 4b. Full-screen share availability for on-demand proctor screenshots ---
   useEffect(() => {
@@ -1077,8 +1127,8 @@ export const ActiveExam = () => {
 
   // --- Handlers ---
   const isCameraFeedLive = webcamStatus === 'live';
-  const isExamInteractionPaused = initStatus === 'READY' && (screenShareStatus !== 'active' || !isCameraFeedLive);
-  const canUseExamControls = () => screenShareStatus === 'active' && isCameraFeedLive;
+  const isExamInteractionPaused = initStatus === 'READY' && screenShareStatus !== 'active';
+  const canUseExamControls = () => screenShareStatus === 'active';
 
   const goToQuestion = (nextIndex: number) => {
     if (!canUseExamControls()) return;
@@ -1216,7 +1266,7 @@ export const ActiveExam = () => {
      if (!skipState && !canUseExamControls()) {
        showModal({
          title: 'Proctoring Required',
-         message: 'Your camera feed and screen sharing must be active before you can manually submit the exam.',
+         message: 'Screen sharing must be active before you can manually submit the exam.',
          type: 'warning',
          showCancel: false,
          confirmText: 'OK',
@@ -1575,26 +1625,28 @@ export const ActiveExam = () => {
     const isRetrying = webcamStatus === 'starting' || webcamStatus === 'uploading';
 
     return (
-      <div className="fixed inset-0 z-[75] flex items-center justify-center bg-gray-950/75 p-4 backdrop-blur-md">
-        <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-white p-6 text-center shadow-2xl dark:bg-gray-900">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-3xl bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+      <div className="fixed inset-x-0 top-24 z-[65] flex justify-center px-4 pointer-events-none">
+        <div className="w-full max-w-2xl rounded-3xl border border-amber-200 bg-white/95 p-4 shadow-2xl shadow-amber-900/10 backdrop-blur-xl pointer-events-auto dark:border-amber-800 dark:bg-gray-900/95">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
             {isRetrying ? <Loader2 size={32} className="animate-spin" /> : <Video size={32} />}
+            </div>
+            <div className="min-w-0 flex-1 text-left">
+              <h2 className="text-base font-bold text-gray-900 dark:text-white">Camera Feed Needs Attention</h2>
+              <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
+                You can continue writing, but proctors cannot see a fresh camera feed. Please retry now and keep your face visible.
+              </p>
+              <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">{webcamMessage}</p>
+            </div>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => setWebcamRetryNonce(value => value + 1)}
+              disabled={isRetrying}
+            >
+              {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
+              Retry Camera
+            </Button>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Camera Feed Required</h2>
-          <p className="mt-3 text-sm leading-6 text-gray-600 dark:text-gray-300">
-            The exam is paused until your webcam feed is uploaded and visible to the proctor.
-          </p>
-          <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-3 text-left text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100">
-            {webcamMessage}
-          </div>
-          <Button
-            className="mt-6 w-full"
-            onClick={() => setWebcamRetryNonce(value => value + 1)}
-            disabled={isRetrying}
-          >
-            {isRetrying ? <Loader2 size={18} className="animate-spin" /> : <Video size={18} />}
-            Retry Camera Feed
-          </Button>
         </div>
       </div>
     );
@@ -1638,7 +1690,7 @@ export const ActiveExam = () => {
               {webcamStatus === 'starting' || webcamStatus === 'uploading'
                 ? <Loader2 size={14} className="animate-spin" />
                 : <Video size={14} />}
-              <span className="hidden sm:inline">{isCameraFeedLive ? 'Camera Live' : 'Camera Required'}</span>
+              <span className="hidden sm:inline">{isCameraFeedLive ? 'Camera Live' : 'Camera Issue'}</span>
             </div>
 
             {screenShareStatus === 'active' ? (

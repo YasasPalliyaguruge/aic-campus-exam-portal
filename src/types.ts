@@ -117,7 +117,7 @@ export interface ScreenCaptureState {
 
 export interface Violation {
   timestamp: number;
-  type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'NO_FACE_DETECTED' | 'PASTE_ATTEMPT' | 'SCREEN_SHARE_STOPPED';
+  type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'NO_FACE_DETECTED' | 'PASTE_ATTEMPT' | 'SCREEN_SHARE_STOPPED' | 'CAMERA_FEED_LOST';
 }
 
 export interface AuthState {
